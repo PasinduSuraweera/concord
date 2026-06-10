@@ -13,6 +13,7 @@ into the seed data would pre-decide the answer the agent is supposed to reason t
 
 from datetime import date
 from enum import Enum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -87,3 +88,39 @@ class LabRecord(BaseRecord):
 
 # Convenience union for functions that accept a record of any source type.
 AnyRecord = ClinicRecord | PharmacyRecord | LabRecord
+
+
+class ConflictType(str, Enum):
+    """The kinds of clinical contradiction the deterministic detector flags."""
+
+    DOSE_CLASH = "dose_clash"
+    ALLERGY_MISMATCH = "allergy_mismatch"
+    DRUG_INTERACTION = "drug_interaction"
+
+
+class ConflictParty(BaseModel):
+    """One record's contribution to a conflict, with its provenance and recency.
+
+    Carrying source_type + record_date here is what later lets the LLM adjudicate
+    on provenance and recency without re-fetching anything.
+    """
+
+    record_id: str
+    source_type: SourceType
+    source_name: str
+    record_date: date
+    value: str  # the relevant value as text, e.g. "Amlodipine 10mg" or "Penicillin allergy"
+
+
+class Conflict(BaseModel):
+    """A detected contradiction — FACTS ONLY.
+
+    The detector never assigns severity or an action; those are decided by the
+    LLM in adjudication (Call 1). This keeps the deterministic layer purely about
+    'what disagrees', not 'how dangerous / what to do'.
+    """
+
+    conflict_type: ConflictType
+    description: str
+    parties: list[ConflictParty]
+    detail: dict[str, Any] = Field(default_factory=dict)  # type-specific extras
