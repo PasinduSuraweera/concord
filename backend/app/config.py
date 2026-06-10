@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_key: str = ""
 
+    # LLM provider keys (free tiers). Gemini is primary, Groq is the fallback.
+    gemini_api_key: str = ""
+    groq_api_key: str = ""
+
 
 # One shared, import-anywhere settings instance.
 settings = Settings()

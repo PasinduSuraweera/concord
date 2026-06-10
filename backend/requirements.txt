@@ -3,3 +3,5 @@ uvicorn[standard]==0.34.0
 pydantic-settings==2.7.1
 sentence-transformers==3.3.1
 supabase==2.10.0
+pydantic-ai-slim[groq]==1.107.0
+httpx==0.27.2  # pinned <0.28 for Supabase; Gemini uses PydanticAI's GLA client, not google-genai
