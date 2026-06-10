@@ -124,3 +124,37 @@ class Conflict(BaseModel):
     description: str
     parties: list[ConflictParty]
     detail: dict[str, Any] = Field(default_factory=dict)  # type-specific extras
+
+
+class Severity(str, Enum):
+    """Clinical severity the LLM assigns to a conflict during adjudication."""
+
+    LOW = "low"
+    MODERATE = "moderate"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class AdjudicationAction(str, Enum):
+    """The safety action the LLM recommends; executed in loop step 4."""
+
+    PRESCRIBER_ALERT = "prescriber_alert"
+    RECONCILE_RECORD = "reconcile_record"
+    GENERATE_REFERRAL = "generate_referral"
+    NO_ACTION = "no_action"
+
+
+class ConflictAdjudication(BaseModel):
+    """The LLM's verdict on a single conflict (the output of Call 1, per conflict)."""
+
+    conflict_ref: str  # echoes the "C1"/"C2"... ref the conflict was given in the prompt
+    trusted_value: str  # the value the agent decided to trust
+    reasoning: str  # why, citing provenance / recency / corroboration
+    severity: Severity
+    action: AdjudicationAction
+
+
+class Adjudication(BaseModel):
+    """The full structured result of the single batched adjudication call."""
+
+    decisions: list[ConflictAdjudication]
