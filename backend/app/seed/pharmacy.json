@@ -1,0 +1,54 @@
+[
+  {
+    "record_id": "HG-7781",
+    "source_type": "pharmacy",
+    "source_name": "Healthguard Pharmacy, Colombo",
+    "record_date": "2026-05-25",
+    "identity": {
+      "full_name": "K. Perera",
+      "date_of_birth": "1980-05-01",
+      "nic": null,
+      "phone": "0771234567",
+      "gender": "M"
+    },
+    "medications": [
+      {"name": "Amlodipine", "dose": "10mg", "frequency": "OD"},
+      {"name": "Aspirin", "dose": "75mg", "frequency": "OD"}
+    ],
+    "allergies": ["Penicillin"]
+  },
+  {
+    "record_id": "HG-7790",
+    "source_type": "pharmacy",
+    "source_name": "Healthguard Pharmacy, Colombo",
+    "record_date": "2026-04-15",
+    "identity": {
+      "full_name": "Nimal Perera",
+      "date_of_birth": "1975-11-12",
+      "nic": "751234890V",
+      "phone": "0712223333",
+      "gender": "M"
+    },
+    "medications": [
+      {"name": "Metformin", "dose": "500mg", "frequency": "BD"}
+    ],
+    "allergies": []
+  },
+  {
+    "record_id": "HG-7795",
+    "source_type": "pharmacy",
+    "source_name": "Healthguard Pharmacy, Kandy",
+    "record_date": "2026-05-01",
+    "identity": {
+      "full_name": "Kamala Perera",
+      "date_of_birth": "1992-03-22",
+      "nic": "927654321V",
+      "phone": "0759998888",
+      "gender": "F"
+    },
+    "medications": [
+      {"name": "Cetirizine", "dose": "10mg", "frequency": "OD"}
+    ],
+    "allergies": []
+  }
+]

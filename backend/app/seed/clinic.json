@@ -1,0 +1,58 @@
+[
+  {
+    "record_id": "NWK-1042",
+    "source_type": "clinic",
+    "source_name": "Nawaloka Clinic, Colombo",
+    "record_date": "2026-05-20",
+    "identity": {
+      "full_name": "Kamal Perera",
+      "date_of_birth": "1980-05-01",
+      "nic": "801234567V",
+      "phone": "0771234567",
+      "gender": "M"
+    },
+    "diagnoses": ["Hypertension", "Atrial fibrillation", "Acute bronchitis"],
+    "medications": [
+      {"name": "Amlodipine", "dose": "5mg", "frequency": "OD"},
+      {"name": "Warfarin", "dose": "5mg", "frequency": "OD"},
+      {"name": "Amoxicillin", "dose": "500mg", "frequency": "TDS"}
+    ],
+    "allergies": []
+  },
+  {
+    "record_id": "NWK-1099",
+    "source_type": "clinic",
+    "source_name": "Nawaloka Clinic, Colombo",
+    "record_date": "2026-04-10",
+    "identity": {
+      "full_name": "Nimal Perera",
+      "date_of_birth": "1975-11-12",
+      "nic": "751234890V",
+      "phone": "0712223333",
+      "gender": "M"
+    },
+    "diagnoses": ["Type 2 Diabetes Mellitus"],
+    "medications": [
+      {"name": "Metformin", "dose": "500mg", "frequency": "BD"}
+    ],
+    "allergies": []
+  },
+  {
+    "record_id": "NWK-1100",
+    "source_type": "clinic",
+    "source_name": "Nawaloka Clinic, Colombo",
+    "record_date": "2026-03-20",
+    "identity": {
+      "full_name": "Sunil Fernando",
+      "date_of_birth": "1968-07-30",
+      "nic": "681112223V",
+      "phone": "0763334444",
+      "gender": "M"
+    },
+    "diagnoses": ["Osteoarthritis"],
+    "medications": [
+      {"name": "Paracetamol", "dose": "1g", "frequency": "TDS"}
+    ],
+    "allergies": []
+  }
+]

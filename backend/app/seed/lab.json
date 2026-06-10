@@ -1,0 +1,44 @@
+[
+  {
+    "record_id": "ASIRI-3320",
+    "source_type": "lab",
+    "source_name": "Asiri Labs, Kandy",
+    "record_date": "2026-05-18",
+    "identity": {
+      "full_name": "Kamal Perera",
+      "date_of_birth": "1980-05-01",
+      "nic": "801234567V",
+      "phone": null,
+      "gender": "M"
+    },
+    "allergies": ["Penicillin"]
+  },
+  {
+    "record_id": "ASIRI-3340",
+    "source_type": "lab",
+    "source_name": "Asiri Labs, Kandy",
+    "record_date": "2026-05-02",
+    "identity": {
+      "full_name": "Kamala Perera",
+      "date_of_birth": "1992-03-22",
+      "nic": "927654321V",
+      "phone": "0759998888",
+      "gender": "F"
+    },
+    "allergies": []
+  },
+  {
+    "record_id": "ASIRI-3350",
+    "source_type": "lab",
+    "source_name": "Asiri Labs, Colombo",
+    "record_date": "2026-03-22",
+    "identity": {
+      "full_name": "Sunil Fernando",
+      "date_of_birth": "1968-07-30",
+      "nic": "681112223V",
+      "phone": "0763334444",
+      "gender": "M"
+    },
+    "allergies": []
+  }
+]
