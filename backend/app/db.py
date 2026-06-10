@@ -1,0 +1,69 @@
+"""Supabase persistence + pgvector similarity search.
+
+Runtime data ops go through the official Supabase client (PostgREST + RPC),
+which fits the service_role key in .env. The schema itself (table, index, the
+match_records function) is applied once from db/schema.sql via the Supabase SQL
+editor — PostgREST cannot run DDL.
+"""
+
+from functools import lru_cache
+
+from supabase import Client, create_client
+
+from app.config import settings
+from app.embeddings import embed_identity
+from app.models import AnyRecord, PatientIdentity
+
+
+@lru_cache(maxsize=1)
+def get_client() -> Client:
+    """Create the Supabase client once, from settings. Errors clearly if unset."""
+    if not settings.supabase_url or not settings.supabase_key:
+        raise RuntimeError(
+            "SUPABASE_URL and SUPABASE_KEY must be set in backend/.env"
+        )
+    return create_client(settings.supabase_url, settings.supabase_key)
+
+
+def _to_row(record: AnyRecord) -> dict:
+    """Flatten a record into a DB row, computing its identity embedding.
+
+    Base provenance/identity fields become columns; whatever clinical fields the
+    source carries (diagnoses / medications / allergies) go into the JSONB blob.
+    """
+    data = record.model_dump(mode="json")
+    base = {"record_id", "source_type", "source_name", "record_date"}
+    identity = data.pop("identity")
+    clinical = {k: v for k, v in data.items() if k not in base}
+    return {
+        "record_id": data["record_id"],
+        "source_type": data["source_type"],
+        "source_name": data["source_name"],
+        "record_date": data["record_date"],
+        "identity": identity,
+        "clinical": clinical,
+        "embedding": embed_identity(record.identity),
+    }
+
+
+def upsert_records(records: list[AnyRecord]) -> int:
+    """Insert/replace records by their source-local record_id. Returns the count."""
+    rows = [_to_row(r) for r in records]
+    get_client().table("records").upsert(rows, on_conflict="record_id").execute()
+    return len(rows)
+
+
+def similarity_search(identity: PatientIdentity, match_count: int = 10) -> list[dict]:
+    """Return the records most similar to a query identity, ranked by cosine."""
+    response = (
+        get_client()
+        .rpc(
+            "match_records",
+            {
+                "query_embedding": embed_identity(identity),
+                "match_count": match_count,
+            },
+        )
+        .execute()
+    )
+    return response.data

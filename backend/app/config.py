@@ -1,4 +1,10 @@
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Resolve .env relative to THIS file (backend/.env), not the working directory,
+# so config loads no matter where the process is launched from.
+_ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
 
 class Settings(BaseSettings):
@@ -10,7 +16,7 @@ class Settings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -18,6 +24,12 @@ class Settings(BaseSettings):
     app_name: str = "Concord"
     environment: str = "development"
     version: str = "0.1.0"
+
+    # Supabase (server-side service_role key — never expose to the frontend).
+    # Empty defaults so the app still boots without them; db.py errors clearly
+    # if they're used while unset.
+    supabase_url: str = ""
+    supabase_key: str = ""
 
 
 # One shared, import-anywhere settings instance.
