@@ -468,26 +468,33 @@ export default function Home() {
   );
 }
 
-function HeaderStatus({ running, meta }: { running: boolean; meta: ReconciliationMeta | null }) {
+function HeaderStatus({
+  running,
+  patientName,
+  finishedAt,
+  durationMs,
+}: {
+  running: boolean;
+  patientName?: string;
+  finishedAt: Date | null;
+  durationMs: number | null;
+}) {
+  // Information, not state words: nothing when idle, plain text while working,
+  // a quiet readout of the last run once finished.
   if (running)
     return (
       <span className="flex items-center gap-2 text-xs text-[#6f6b60]">
-        <Spinner /> Running
+        <Spinner /> Reconciling {patientName ?? ""}
       </span>
     );
-  if (meta)
+  if (finishedAt)
     return (
-      <span className={`flex items-center gap-2 text-xs ${meta.escalated ? "text-amber-700" : "text-teal-700"}`}>
-        <span className={`h-1.5 w-1.5 rounded-full ${meta.escalated ? "bg-amber-600" : "bg-teal-600"}`} />
-        {meta.escalated ? "Escalated" : "Completed"}
+      <span className="mono tnum text-[11px] text-[#a8a399]">
+        Last run {finishedAt.toLocaleTimeString("en-GB", { hour12: false })}
+        {durationMs != null && <>, {(durationMs / 1000).toFixed(1)}s</>}
       </span>
     );
-  return (
-    <span className="flex items-center gap-2 text-xs text-[#a8a399]">
-      <span className="h-1.5 w-1.5 rounded-full bg-[#d8d3c6]" />
-      Idle
-    </span>
-  );
+  return null;
 }
 
 function Section({ title, note, children }: { title: string; note?: string; children: React.ReactNode }) {
