@@ -15,11 +15,13 @@ import type {
   Severity,
 } from "@/lib/types";
 
-const SEVERITY_STAMP: Record<Severity, string> = {
-  critical: "border-red-700/40 text-red-700",
-  high: "border-orange-700/40 text-orange-700",
-  moderate: "border-amber-700/40 text-amber-700",
-  low: "border-stone-400 text-stone-500",
+// Severity is printed, not badged: it colors the finding's margin numeral and
+// its small caption, the way an abnormal value is flagged on a lab report.
+const SEVERITY_INK: Record<Severity, string> = {
+  critical: "text-red-700",
+  high: "text-orange-700",
+  moderate: "text-amber-700",
+  low: "text-stone-400",
 };
 
 const normRef = (r: string) => r.match(/C\d+/i)?.[0]?.toUpperCase() ?? r;
@@ -49,6 +51,7 @@ export default function Home() {
 
   const [log, setLog] = useState<LogEntry[]>([]);
   const [durationMs, setDurationMs] = useState<number | null>(null);
+  const [finishedAt, setFinishedAt] = useState<Date | null>(null);
 
   const closeRef = useRef<(() => void) | null>(null);
   const startRef = useRef<number>(0);
@@ -84,6 +87,7 @@ export default function Home() {
     setReview(null);
     setMeta(null);
     setDurationMs(null);
+    setFinishedAt(null);
     setLog([{ at: new Date(), text: `Run started for ${selectedId}` }]);
     startRef.current = performance.now();
 
@@ -111,6 +115,7 @@ export default function Home() {
         setRunning(false);
         const ms = performance.now() - startRef.current;
         setDurationMs(ms);
+        setFinishedAt(new Date());
         addLog(`Complete in ${(ms / 1000).toFixed(1)}s, ${d.meta.llm_calls} model call(s)`);
       },
       onError: (msg) => {
@@ -137,9 +142,13 @@ export default function Home() {
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-8">
           <div className="flex items-baseline gap-3">
             <span className="display text-[22px] font-medium tracking-tight text-[#211f19]">Concord</span>
-            <span className="text-[13px] text-[#8a8578]">Clinical record reconciliation</span>
           </div>
-          <HeaderStatus running={running} meta={meta} />
+          <HeaderStatus
+            running={running}
+            patientName={patients.find((p) => p.record_id === selectedId)?.full_name}
+            finishedAt={finishedAt}
+            durationMs={durationMs}
+          />
         </div>
       </header>
 
@@ -239,8 +248,8 @@ export default function Home() {
                 const active = running && i === activeIndex;
                 return (
                   <span key={s.label} className="flex items-center gap-1.5 text-[12px]">
-                    {s.done ? <IconCheck className="text-teal-700" /> : active ? <Spinner /> : <span className="h-1 w-1 rounded-full bg-[#d8d3c6]" />}
-                    <span className={s.done ? "text-[#211f19]" : active ? "text-[#44413a]" : "text-[#b3ad9e]"}>
+                    {s.done ? <IconCheck className="text-teal-700" /> : active ? <Spinner /> : null}
+                    <span className={s.done ? "text-[#211f19]" : active ? "text-[#44413a]" : "text-[#c9c4b4]"}>
                       {s.label}
                     </span>
                   </span>
@@ -303,20 +312,27 @@ export default function Home() {
                     const action = actionsByRef[ref];
                     const rev = reviewsByRef[ref];
                     return (
-                      <div key={ref} className="grid grid-cols-[2.4rem_1fr] gap-x-4">
-                        <span className="display tnum pt-0.5 text-[22px] font-medium text-[#d8d3c6]">
-                          {String(i + 1).padStart(2, "0")}
+                      <div key={ref} className="grid grid-cols-[3rem_1fr] gap-x-4">
+                        <span className="flex flex-col items-end pt-0.5 text-right">
+                          <span
+                            className={`display tnum text-[22px] font-medium leading-none ${
+                              action ? SEVERITY_INK[action.severity] : "text-[#d8d3c6]"
+                            }`}
+                          >
+                            {String(i + 1).padStart(2, "0")}
+                          </span>
+                          {action && (
+                            <span className={`mt-1 text-[9px] uppercase tracking-[0.16em] ${SEVERITY_INK[action.severity]}`}>
+                              {action.severity}
+                            </span>
+                          )}
                         </span>
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <h3 className="text-[15px] font-medium capitalize text-[#211f19]">
                               {c.conflict_type.replace(/_/g, " ")}
                             </h3>
-                            {action ? (
-                              <span className={`rounded-[3px] border px-1.5 py-px text-[10px] font-semibold uppercase tracking-[0.08em] ${SEVERITY_STAMP[action.severity]}`}>
-                                {action.severity}
-                              </span>
-                            ) : (
+                            {!action && (
                               <span className="flex items-center gap-1.5 text-xs text-[#8a8578]">
                                 <Spinner /> adjudicating
                               </span>
