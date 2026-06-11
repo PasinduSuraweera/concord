@@ -19,9 +19,16 @@ DRUG_CLASS: dict[str, str] = {
     "clopidogrel": "antiplatelet",
     "warfarin": "anticoagulant",
     "amlodipine": "calcium-channel-blocker",
+    "losartan": "arb",
+    "bisoprolol": "beta-blocker",
+    "atorvastatin": "statin",
     "metformin": "biguanide",
+    "gabapentin": "anticonvulsant",
+    "sumatriptan": "triptan",
+    "omeprazole": "ppi",
     "paracetamol": "analgesic",
     "cetirizine": "antihistamine",
+    "glucosamine": "supplement",
 }
 
 # Allergy term -> the drug class it contraindicates.
@@ -38,6 +45,7 @@ INTERACTIONS: dict[frozenset[str], str] = {
     frozenset({"warfarin", "ibuprofen"}): "increased GI bleeding risk",
     frozenset({"warfarin", "naproxen"}): "increased GI bleeding risk",
     frozenset({"clopidogrel", "aspirin"}): "increased bleeding risk (dual antiplatelet)",
+    frozenset({"clopidogrel", "omeprazole"}): "omeprazole may reduce clopidogrel's antiplatelet effect (CYP2C19 inhibition)",
 }
 
 

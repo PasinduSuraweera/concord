@@ -2,7 +2,7 @@
   {
     "record_id": "HG-7781",
     "source_type": "pharmacy",
-    "source_name": "Healthguard Pharmacy, Colombo",
+    "source_name": "Healthguard Pharmacy, Union Place",
     "record_date": "2026-05-25",
     "identity": {
       "full_name": "K. Perera",
@@ -13,14 +13,15 @@
     },
     "medications": [
       {"name": "Amlodipine", "dose": "10mg", "frequency": "OD"},
-      {"name": "Aspirin", "dose": "75mg", "frequency": "OD"}
+      {"name": "Aspirin", "dose": "75mg", "frequency": "OD"},
+      {"name": "Atorvastatin", "dose": "20mg", "frequency": "nocte"}
     ],
     "allergies": ["Penicillin"]
   },
   {
     "record_id": "HG-7790",
     "source_type": "pharmacy",
-    "source_name": "Healthguard Pharmacy, Colombo",
+    "source_name": "Healthguard Pharmacy, Union Place",
     "record_date": "2026-04-15",
     "identity": {
       "full_name": "Nimal Perera",
@@ -30,24 +31,63 @@
       "gender": "M"
     },
     "medications": [
-      {"name": "Metformin", "dose": "500mg", "frequency": "BD"}
+      {"name": "Metformin", "dose": "500mg", "frequency": "BD"},
+      {"name": "Gabapentin", "dose": "300mg", "frequency": "nocte"}
     ],
     "allergies": []
   },
   {
     "record_id": "HG-7795",
     "source_type": "pharmacy",
-    "source_name": "Healthguard Pharmacy, Kandy",
+    "source_name": "Healthguard Pharmacy, Kandy City Centre",
     "record_date": "2026-05-01",
     "identity": {
       "full_name": "Kamala Perera",
       "date_of_birth": "1992-03-22",
-      "nic": "927654321V",
-      "phone": "0759998888",
+      "nic": "199282500461",
+      "phone": "075 999 8888",
       "gender": "F"
     },
     "medications": [
       {"name": "Cetirizine", "dose": "10mg", "frequency": "OD"}
+    ],
+    "allergies": []
+  },
+  {
+    "record_id": "HG-7811",
+    "source_type": "pharmacy",
+    "source_name": "Healthguard Pharmacy, Union Place",
+    "record_date": "2026-05-28",
+    "identity": {
+      "full_name": "D. Wickramasinghe",
+      "date_of_birth": "1988-03-14",
+      "nic": null,
+      "phone": "0758842211",
+      "gender": "F"
+    },
+    "medications": [
+      {"name": "Losartan", "dose": "100mg", "frequency": "OD"},
+      {"name": "Sumatriptan", "dose": "50mg", "frequency": "PRN"}
+    ],
+    "allergies": []
+  },
+  {
+    "record_id": "HG-7820",
+    "source_type": "pharmacy",
+    "source_name": "Healthguard Pharmacy, Union Place",
+    "record_date": "2026-05-02",
+    "identity": {
+      "full_name": "Ruwan Jayasuriya",
+      "date_of_birth": "1965-09-22",
+      "nic": "652663418V",
+      "phone": "0775558899",
+      "gender": "M"
+    },
+    "medications": [
+      {"name": "Clopidogrel", "dose": "75mg", "frequency": "OD"},
+      {"name": "Aspirin", "dose": "100mg", "frequency": "OD"},
+      {"name": "Omeprazole", "dose": "20mg", "frequency": "OD"},
+      {"name": "Atorvastatin", "dose": "40mg", "frequency": "nocte"}
     ],
     "allergies": []
   }
