@@ -53,6 +53,27 @@ def upsert_records(records: list[AnyRecord]) -> int:
     return len(rows)
 
 
+def list_entry_records() -> list[dict]:
+    """Clinic records — the valid entry points a clinician can reconcile from."""
+    response = (
+        get_client()
+        .table("records")
+        .select("record_id, source_name, record_date, identity")
+        .eq("source_type", "clinic")
+        .order("record_id")
+        .execute()
+    )
+    return [
+        {
+            "record_id": r["record_id"],
+            "full_name": r["identity"].get("full_name"),
+            "source_name": r["source_name"],
+            "record_date": r["record_date"],
+        }
+        for r in response.data
+    ]
+
+
 def insert_actions(patient_record_id: str, actions: list[ExecutedAction]) -> int:
     """Persist executed actions as an audit trail. Returns the number stored."""
     rows = [

@@ -20,14 +20,9 @@ from app.models import ReconciliationMeta, ReconciliationResult
 from app.reviewer import review
 
 
-def reconcile(entry_record_id: str, persist: bool = True) -> ReconciliationResult:
-    """Run the whole loop for one patient (identified by their clinic record id)."""
-    match = match_patient(entry_record_id)                       # 1
-    conflicts = detect_conflicts(match.records)                  # 2
-    adjudication = adjudicate(conflicts)                         # 3  (LLM call 1)
-    execution = execute(entry_record_id, match.records, conflicts, adjudication, persist=persist)  # 4
-    review_result = review(execution)                            # 5  (LLM call 2)
-
+def assemble_result(entry_record_id, match, conflicts, adjudication, execution, review_result) -> ReconciliationResult:
+    """Bundle the loop's pieces into the API result. Shared by reconcile() and the
+    streaming endpoint so the two can never diverge."""
     return ReconciliationResult(
         entry_record_id=entry_record_id,
         match_evidence=match.evidence,
@@ -45,3 +40,13 @@ def reconcile(entry_record_id: str, persist: bool = True) -> ReconciliationResul
             escalated=review_result.escalate_to_human,
         ),
     )
+
+
+def reconcile(entry_record_id: str, persist: bool = True) -> ReconciliationResult:
+    """Run the whole loop for one patient (identified by their clinic record id)."""
+    match = match_patient(entry_record_id)                       # 1
+    conflicts = detect_conflicts(match.records)                  # 2
+    adjudication = adjudicate(conflicts)                         # 3  (LLM call 1)
+    execution = execute(entry_record_id, match.records, conflicts, adjudication, persist=persist)  # 4
+    review_result = review(execution)                            # 5  (LLM call 2)
+    return assemble_result(entry_record_id, match, conflicts, adjudication, execution, review_result)
