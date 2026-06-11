@@ -1,14 +1,19 @@
 @import "tailwindcss";
 
+/* Warm paper workbench. Ink text, hairline rules, one clinical accent. */
 html,
 body {
-  background: #0d1117;
-  color: #e6edf3;
+  background: #faf9f5;
+  color: #211f19;
 }
 
 body {
   font-family: var(--font-geist-sans), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+.display {
+  font-family: var(--font-display), Georgia, serif;
 }
 
 .mono {
@@ -19,7 +24,11 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Panels fade in as each stage streams from the agent. Subtle, not showy. */
+::selection {
+  background: #e3efed;
+}
+
+/* Sections fade in as each stage streams from the agent. */
 @keyframes fade-up {
   from {
     opacity: 0;
@@ -31,10 +40,10 @@ body {
   }
 }
 .fade-up {
-  animation: fade-up 0.25s ease-out both;
+  animation: fade-up 0.3s ease-out both;
 }
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(110, 118, 129, 0.3) transparent;
+  scrollbar-color: #d8d3c6 transparent;
 }
