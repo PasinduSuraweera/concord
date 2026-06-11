@@ -15,14 +15,22 @@ import type {
   Severity,
 } from "@/lib/types";
 
-const SEVERITY: Record<Severity, { chip: string; bar: string; glow: string }> = {
-  critical: { chip: "border-red-500/40 bg-red-500/10 text-red-300", bar: "bg-red-500", glow: "glow-red" },
-  high: { chip: "border-orange-500/40 bg-orange-500/10 text-orange-300", bar: "bg-orange-500", glow: "" },
-  moderate: { chip: "border-amber-500/40 bg-amber-500/10 text-amber-300", bar: "bg-amber-500", glow: "" },
-  low: { chip: "border-slate-500/40 bg-slate-500/10 text-slate-300", bar: "bg-slate-500", glow: "" },
+const SEVERITY_TEXT: Record<Severity, string> = {
+  critical: "text-red-400",
+  high: "text-orange-400",
+  moderate: "text-amber-300",
+  low: "text-slate-400",
+};
+const SEVERITY_DOT: Record<Severity, string> = {
+  critical: "bg-red-400",
+  high: "bg-orange-400",
+  moderate: "bg-amber-300",
+  low: "bg-slate-500",
 };
 
 const normRef = (r: string) => r.match(/C\d+/i)?.[0]?.toUpperCase() ?? r;
+
+type LogEntry = { at: Date; text: string };
 
 export default function Home() {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -38,12 +46,18 @@ export default function Home() {
   const [review, setReview] = useState<ReviewResult | null>(null);
   const [meta, setMeta] = useState<ReconciliationMeta | null>(null);
 
+  const [log, setLog] = useState<LogEntry[]>([]);
+  const [durationMs, setDurationMs] = useState<number | null>(null);
+
   const closeRef = useRef<(() => void) | null>(null);
+  const startRef = useRef<number>(0);
 
   useEffect(() => {
     getPatients().then(setPatients).catch((e) => setLoadError(String(e)));
     return () => closeRef.current?.();
   }, []);
+
+  const addLog = (text: string) => setLog((l) => [...l, { at: new Date(), text }]);
 
   const actionsByRef = useMemo(() => {
     const m: Record<string, ExecutedAction> = {};
@@ -68,22 +82,40 @@ export default function Home() {
     setReconciled(null);
     setReview(null);
     setMeta(null);
+    setDurationMs(null);
+    setLog([{ at: new Date(), text: `Run started for ${selectedId}` }]);
+    startRef.current = performance.now();
 
     closeRef.current = streamReconcile(selectedId, {
-      onMatched: (d) => setMatchEvidence(d.match_evidence),
-      onDetected: (d) => setConflicts(d.conflicts),
+      onMatched: (d) => {
+        setMatchEvidence(d.match_evidence);
+        const confirmed = d.match_evidence.filter((e) => e.decision === "confirmed").length;
+        addLog(`Identity resolved: ${confirmed} of ${d.match_evidence.length} candidate records confirmed`);
+      },
+      onDetected: (d) => {
+        setConflicts(d.conflicts);
+        addLog(`Conflict detection: ${d.conflicts.length} contradiction(s) found`);
+      },
       onExecuted: (d) => {
         setActions(d.actions);
         setReconciled(d.reconciled_record);
+        addLog(`Adjudication complete, ${d.actions.length} action(s) executed`);
       },
-      onReviewed: (d) => setReview(d.review),
+      onReviewed: (d) => {
+        setReview(d.review);
+        addLog(d.review.escalate_to_human ? "Safety review: escalated to human" : "Safety review: cleared, autonomous");
+      },
       onDone: (d) => {
         setMeta(d.meta);
         setRunning(false);
+        const ms = performance.now() - startRef.current;
+        setDurationMs(ms);
+        addLog(`Run complete in ${(ms / 1000).toFixed(1)}s with ${d.meta.llm_calls} model call(s)`);
       },
       onError: (msg) => {
         setError(msg);
         setRunning(false);
+        addLog("Stream error");
       },
     });
   }
@@ -99,346 +131,357 @@ export default function Home() {
   const started = running || !!meta;
 
   return (
-    <main className="mx-auto max-w-4xl px-6 py-10">
-      {/* Header */}
-      <header className="flex items-center justify-between border-b border-white/10 pb-5">
-        <div className="flex items-center gap-3">
-          <span className="relative flex h-3 w-3">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan-400 opacity-60" />
-            <span className="relative inline-flex h-3 w-3 rounded-full bg-cyan-400" />
+    <div className="min-h-screen">
+      <header className="flex h-14 items-center justify-between border-b border-white/10 px-6">
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-6 w-6 items-center justify-center rounded bg-teal-500/15 text-teal-300">
+            <IconPulse />
           </span>
-          <div>
-            <h1 className="text-lg font-semibold tracking-[0.3em] text-white">CONCORD</h1>
-            <p className="text-xs tracking-wide text-slate-400">
-              Autonomous clinical-record reconciliation
-            </p>
-          </div>
+          <span className="text-sm font-semibold text-white">Concord</span>
+          <span className="text-xs text-slate-500">Clinical record reconciliation</span>
         </div>
-        <StatusPill running={running} meta={meta} />
+        <HeaderStatus running={running} meta={meta} />
       </header>
 
-      {loadError && (
-        <div className="mt-6 rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-300">
-          Can&apos;t reach the backend on :8000. ({loadError})
-        </div>
-      )}
-
-      {/* Patient picker + run */}
-      <section className="mt-7">
-        <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.2em] text-slate-500">
-          Patient
-        </p>
-        <div className="flex flex-wrap items-center gap-2.5">
-          {patients.map((p) => {
-            const sel = p.record_id === selectedId;
-            return (
-              <button
-                key={p.record_id}
-                onClick={() => setSelectedId(p.record_id)}
-                disabled={running}
-                className={`group rounded-xl border px-4 py-2.5 text-left transition disabled:opacity-50 ${
-                  sel
-                    ? "border-cyan-400/60 bg-cyan-400/10 glow-cyan"
-                    : "border-white/10 bg-white/[0.03] hover:border-white/25"
-                }`}
-              >
-                <div className="text-sm font-medium text-white">{p.full_name}</div>
-                <div className="mono text-[11px] text-slate-400">{p.record_id}</div>
-              </button>
-            );
-          })}
+      <div className="mx-auto grid max-w-6xl gap-8 px-6 py-8 lg:grid-cols-[270px_1fr]">
+        {/* Sidebar */}
+        <aside>
+          <h2 className="mb-2 text-xs font-medium text-slate-500">Patients</h2>
+          {loadError && (
+            <p className="rounded-md border border-red-400/30 bg-red-400/10 p-3 text-xs text-red-300">
+              Backend unreachable on :8000. {loadError}
+            </p>
+          )}
+          <div className="space-y-1">
+            {patients.map((p) => {
+              const sel = p.record_id === selectedId;
+              return (
+                <button
+                  key={p.record_id}
+                  onClick={() => setSelectedId(p.record_id)}
+                  disabled={running}
+                  className={`w-full rounded-md px-3 py-2 text-left transition disabled:opacity-60 ${
+                    sel ? "bg-white/[0.07] text-white" : "text-slate-400 hover:bg-white/[0.03] hover:text-slate-200"
+                  }`}
+                >
+                  <div className="flex items-baseline justify-between">
+                    <span className="text-sm font-medium">{p.full_name}</span>
+                    <span className="mono text-[10px] text-slate-500">{p.record_date}</span>
+                  </div>
+                  <div className="mono text-xs text-slate-500">{p.record_id}</div>
+                </button>
+              );
+            })}
+          </div>
 
           <button
             onClick={onReconcile}
             disabled={!selectedId || running}
-            className="ml-auto rounded-xl bg-cyan-500 px-6 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-slate-500 enabled:glow-cyan"
+            className="mt-4 w-full rounded-md bg-teal-600 py-2 text-sm font-medium text-white transition hover:bg-teal-500 disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-slate-500"
           >
-            {running ? "Reconciling…" : "▸ Reconcile"}
+            {running ? "Running" : "Run reconciliation"}
           </button>
-        </div>
-      </section>
 
-      {error && (
-        <div className="mt-6 rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-300">
-          {error}
-        </div>
-      )}
+          {log.length > 0 && (
+            <div className="mt-6">
+              <h2 className="mb-2 text-xs font-medium text-slate-500">Activity</h2>
+              <ol className="space-y-1.5">
+                {log.map((e, i) => (
+                  <li key={i} className="flex gap-2 text-xs leading-relaxed">
+                    <span className="mono tnum shrink-0 text-slate-600">
+                      {e.at.toLocaleTimeString("en-GB", { hour12: false })}
+                    </span>
+                    <span className="text-slate-400">{e.text}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+        </aside>
 
-      {/* Pipeline */}
-      {started && <Pipeline steps={steps} activeIndex={activeIndex} running={running} />}
+        {/* Main */}
+        <main className="min-w-0">
+          {!started && (
+            <div className="rounded-lg border border-dashed border-white/10 p-12 text-center">
+              <p className="text-sm font-medium text-slate-300">No run yet</p>
+              <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">
+                Select a patient and run reconciliation. The agent pulls their records from the
+                clinic, lab and pharmacy, matches identity, resolves contradictions and reports
+                back. Two model calls per run, no human input.
+              </p>
+            </div>
+          )}
 
-      {/* Identity resolution */}
-      {matchEvidence && (
-        <Panel title="Identity resolution" subtitle={`${matchEvidence.filter((e) => e.decision === "confirmed").length} confirmed · ${matchEvidence.length} candidates`}>
-          <div className="space-y-1">
-            {matchEvidence.map((e) => (
-              <div
-                key={e.record_id}
-                className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm ${
-                  e.decision === "confirmed" ? "bg-green-500/[0.06]" : "bg-white/[0.02]"
-                }`}
-              >
-                <DecisionMark decision={e.decision} />
-                <span className="mono w-24 shrink-0 text-xs text-slate-400">{e.record_id}</span>
-                <span className="w-32 shrink-0 truncate text-slate-200">{e.full_name}</span>
-                {e.similarity != null && <SimBar value={e.similarity} />}
-                <span className="hidden flex-1 truncate text-xs text-slate-500 sm:block">{e.reason}</span>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      )}
-
-      {/* Conflicts + verdicts */}
-      {conflicts && (
-        <Panel title="Conflicts" subtitle={`${conflicts.length} detected`}>
-          {conflicts.length === 0 ? (
-            <p className="text-sm text-slate-400">No contradictions found across the sources.</p>
-          ) : (
-            <div className="space-y-3">
-              {conflicts.map((c, i) => {
-                const ref = `C${i + 1}`;
-                const action = actionsByRef[ref];
-                const rev = reviewsByRef[ref];
-                const sev = action ? SEVERITY[action.severity] : null;
+          {started && (
+            <div className="mb-5 flex flex-wrap items-center gap-x-5 gap-y-2">
+              {steps.map((s, i) => {
+                const active = running && i === activeIndex;
                 return (
-                  <div
-                    key={ref}
-                    className={`relative overflow-hidden rounded-xl border border-white/10 bg-white/[0.03] p-4 pl-5 ${
-                      sev?.glow ?? ""
-                    }`}
-                  >
-                    <span className={`absolute inset-y-0 left-0 w-1 ${sev?.bar ?? "bg-white/15"}`} />
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-400">
-                        {c.conflict_type.replace(/_/g, " ")}
+                  <span key={s.label} className="flex items-center gap-1.5 text-xs">
+                    {s.done ? (
+                      <span className="text-teal-400">
+                        <IconCheck />
                       </span>
-                      {action ? (
-                        <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${sev!.chip}`}>
-                          {action.severity}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-cyan-300">adjudicating…</span>
-                      )}
-                    </div>
-                    <p className="mt-1.5 text-sm text-slate-200">{c.description}</p>
-                    {action && (
-                      <div className="mt-3 space-y-2 border-t border-white/10 pt-3">
-                        <div className="flex flex-wrap items-center gap-2 text-xs">
-                          <span className="rounded bg-cyan-400/10 px-2 py-1 font-medium text-cyan-300">
-                            {action.action.replace(/_/g, " ")}
-                          </span>
-                          {rev && <ConfidencePill review={rev} />}
-                        </div>
-                        <p className="text-xs leading-relaxed text-slate-400">{action.detail}</p>
-                      </div>
+                    ) : active ? (
+                      <Spinner />
+                    ) : (
+                      <span className="h-1.5 w-1.5 rounded-full bg-slate-700" />
                     )}
-                  </div>
+                    <span className={s.done ? "text-slate-300" : active ? "text-slate-200" : "text-slate-600"}>
+                      {s.label}
+                    </span>
+                  </span>
                 );
               })}
             </div>
           )}
-        </Panel>
-      )}
 
-      {/* Reconciled record */}
-      {reconciled && (
-        <Panel title="Reconciled record" subtitle={`merged from ${reconciled.source_record_ids.length} sources`}>
-          <div className="mb-4">
-            <p className="text-base font-semibold text-white">{reconciled.identity.full_name}</p>
-            <p className="mono text-xs text-slate-400">
-              DOB {reconciled.identity.date_of_birth ?? "—"} · NIC {reconciled.identity.nic ?? "—"} ·{" "}
-              {reconciled.source_record_ids.join(" + ")}
-            </p>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-3">
-            <ChipField label="Medications" items={reconciled.medications.map((m) => `${m.name} ${m.dose ?? ""}`.trim())} />
-            <ChipField label="Allergies" items={reconciled.allergies} tone="danger" />
-            <ChipField label="Diagnoses" items={reconciled.diagnoses} />
-          </div>
-          {reconciled.applied_changes.length > 0 && (
-            <div className="mt-4 rounded-lg border border-cyan-400/20 bg-cyan-400/[0.04] p-3">
-              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-cyan-300">
-                Applied changes
-              </p>
-              <ul className="space-y-1 text-xs text-slate-300">
-                {reconciled.applied_changes.map((ch, i) => (
-                  <li key={i} className="flex gap-2">
-                    <span className="text-cyan-400">↻</span>
-                    {ch}
-                  </li>
-                ))}
-              </ul>
+          {error && (
+            <div className="mb-5 rounded-md border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-300">
+              {error}
             </div>
           )}
-        </Panel>
-      )}
 
-      {/* Autonomy banner */}
-      {review && (
-        <div
-          className={`rise mt-6 overflow-hidden rounded-2xl border p-6 text-center ${
-            review.escalate_to_human
-              ? "border-amber-500/40 bg-amber-500/10 glow-amber"
-              : "border-green-500/40 bg-green-500/10 glow-green"
-          }`}
-        >
-          <p className={`text-lg font-semibold ${review.escalate_to_human ? "text-amber-300" : "text-green-300"}`}>
-            {review.escalate_to_human ? "⚠  Human review requested" : "✓  Fully autonomous — no human input needed"}
-          </p>
-          <p className="mt-1 text-sm text-slate-300">{review.summary}</p>
-        </div>
-      )}
+          {matchEvidence && (
+            <Panel
+              title="Identity resolution"
+              meta={`${matchEvidence.filter((e) => e.decision === "confirmed").length} confirmed of ${matchEvidence.length} candidates`}
+            >
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/10 text-left text-xs text-slate-500">
+                    <th className="py-2 pr-4 font-medium">Record</th>
+                    <th className="py-2 pr-4 font-medium">Source</th>
+                    <th className="py-2 pr-4 font-medium">Name</th>
+                    <th className="py-2 pr-4 text-right font-medium">Score</th>
+                    <th className="py-2 pr-4 font-medium">Decision</th>
+                    <th className="hidden py-2 font-medium md:table-cell">Basis</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {matchEvidence.map((e) => {
+                    const rejected = e.decision === "rejected";
+                    return (
+                      <tr key={e.record_id} className={`border-b border-white/[0.05] ${rejected ? "text-slate-500" : ""}`}>
+                        <td className="mono py-2 pr-4 text-xs">{e.record_id}</td>
+                        <td className="py-2 pr-4 capitalize">{e.source_type}</td>
+                        <td className="py-2 pr-4">{e.full_name}</td>
+                        <td className="mono tnum py-2 pr-4 text-right text-xs">
+                          {e.similarity != null ? e.similarity.toFixed(3) : ""}
+                        </td>
+                        <td className={`py-2 pr-4 text-xs font-medium ${rejected ? "text-red-400/80" : "text-teal-400"}`}>
+                          {e.decision === "confirmed" ? "Confirmed" : rejected ? "Rejected" : "Uncertain"}
+                        </td>
+                        <td className="hidden py-2 text-xs text-slate-500 md:table-cell">{e.reason}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </Panel>
+          )}
 
-      {/* Meta */}
-      {meta && (
-        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <MetaTile label="LLM calls" value={meta.llm_calls} accent />
-          <MetaTile label="Records matched" value={meta.cluster_size} />
-          <MetaTile label="Conflicts" value={meta.conflicts_found} />
-          <MetaTile label="Actions" value={meta.actions_taken} />
-        </div>
-      )}
-    </main>
-  );
-}
+          {conflicts && (
+            <Panel title="Conflicts" meta={`${conflicts.length} found`}>
+              {conflicts.length === 0 ? (
+                <p className="text-sm text-slate-500">No contradictions across the matched records.</p>
+              ) : (
+                <div className="space-y-3">
+                  {conflicts.map((c, i) => {
+                    const ref = `C${i + 1}`;
+                    const action = actionsByRef[ref];
+                    const rev = reviewsByRef[ref];
+                    return (
+                      <div key={ref} className="rounded-md border border-white/10 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-xs font-medium capitalize text-slate-400">
+                            {c.conflict_type.replace(/_/g, " ")}
+                          </span>
+                          {action ? (
+                            <span className={`flex items-center gap-1.5 text-xs font-medium ${SEVERITY_TEXT[action.severity]}`}>
+                              <span className={`h-1.5 w-1.5 rounded-full ${SEVERITY_DOT[action.severity]}`} />
+                              {action.severity}
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1.5 text-xs text-slate-500">
+                              <Spinner /> adjudicating
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-1.5 text-sm text-slate-200">{c.description}</p>
+                        {action && (
+                          <div className="mt-3 rounded bg-white/[0.03] p-3">
+                            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                              <span className="text-xs text-slate-500">Resolution</span>
+                              <span className="text-sm font-medium text-white">
+                                {String(action.payload?.trusted_value ?? "")}
+                              </span>
+                              <span className="text-xs text-teal-300">{action.action.replace(/_/g, " ")}</span>
+                              {rev && (
+                                <span className="text-xs text-slate-500">
+                                  {rev.confidence} confidence{rev.escalate ? ", escalated" : ""}
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-1.5 text-xs leading-relaxed text-slate-400">{action.detail}</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </Panel>
+          )}
 
-function StatusPill({ running, meta }: { running: boolean; meta: ReconciliationMeta | null }) {
-  let text = "Idle";
-  let cls = "border-white/15 text-slate-400";
-  let dot = "bg-slate-500";
-  if (running) {
-    text = "Reconciling";
-    cls = "border-cyan-400/40 text-cyan-300";
-    dot = "bg-cyan-400 animate-pulse";
-  } else if (meta) {
-    text = meta.escalated ? "Escalated" : "Autonomous";
-    cls = meta.escalated ? "border-amber-400/40 text-amber-300" : "border-green-400/40 text-green-300";
-    dot = meta.escalated ? "bg-amber-400" : "bg-green-400";
-  }
-  return (
-    <span className={`flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${cls}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
-      {text}
-    </span>
-  );
-}
+          {reconciled && (
+            <Panel title="Reconciled record" meta={`merged from ${reconciled.source_record_ids.join(", ")}`}>
+              <p className="text-sm font-medium text-white">{reconciled.identity.full_name}</p>
+              <p className="mono mt-0.5 text-xs text-slate-500">
+                DOB {reconciled.identity.date_of_birth ?? "n/a"} &nbsp; NIC {reconciled.identity.nic ?? "n/a"} &nbsp;{" "}
+                {reconciled.identity.phone ?? ""}
+              </p>
 
-function Pipeline({ steps, activeIndex, running }: { steps: { label: string; done: boolean }[]; activeIndex: number; running: boolean }) {
-  const doneCount = steps.filter((s) => s.done).length;
-  const frac = doneCount <= 1 ? 0 : (doneCount - 1) / (steps.length - 1);
-  return (
-    <div className="rise mt-8 rounded-2xl border border-white/10 bg-white/[0.02] px-6 py-6">
-      <div className="relative flex justify-between">
-        <div className="absolute left-4 right-4 top-4 h-0.5 bg-white/10" />
-        <div
-          className={`absolute left-4 top-4 h-0.5 bg-cyan-400/70 transition-all duration-500 ${running ? "flow" : ""}`}
-          style={{ width: `calc((100% - 2rem) * ${frac})` }}
-        />
-        {steps.map((s, i) => {
-          const active = running && i === activeIndex;
-          return (
-            <div key={s.label} className="relative z-10 flex flex-col items-center gap-2">
+              <div className="mt-4 grid gap-6 md:grid-cols-2">
+                <div>
+                  <h3 className="mb-1.5 text-xs font-medium text-slate-500">Medications</h3>
+                  <table className="w-full text-sm">
+                    <tbody>
+                      {reconciled.medications.map((m, i) => (
+                        <tr key={i} className="border-b border-white/[0.05] last:border-0">
+                          <td className="py-1.5 pr-3 text-slate-200">{m.name}</td>
+                          <td className="mono tnum py-1.5 pr-3 text-xs text-slate-400">{m.dose ?? ""}</td>
+                          <td className="py-1.5 text-xs text-slate-500">{m.frequency ?? ""}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="mb-1.5 text-xs font-medium text-slate-500">Allergies</h3>
+                    <p className={`text-sm ${reconciled.allergies.length ? "text-red-300" : "text-slate-500"}`}>
+                      {reconciled.allergies.length ? reconciled.allergies.join(", ") : "None recorded"}
+                    </p>
+                  </div>
+                  <div>
+                    <h3 className="mb-1.5 text-xs font-medium text-slate-500">Diagnoses</h3>
+                    <p className="text-sm text-slate-300">
+                      {reconciled.diagnoses.length ? reconciled.diagnoses.join("; ") : "None recorded"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {reconciled.applied_changes.length > 0 && (
+                <div className="mt-4 border-t border-white/[0.06] pt-3">
+                  <h3 className="mb-1.5 text-xs font-medium text-slate-500">Changes applied by the agent</h3>
+                  <ul className="space-y-1">
+                    {reconciled.applied_changes.map((ch, i) => (
+                      <li key={i} className="text-xs leading-relaxed text-slate-400">
+                        {ch}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </Panel>
+          )}
+
+          {review && (
+            <div
+              className={`fade-up mt-5 flex items-start gap-3 rounded-lg border p-4 ${
+                review.escalate_to_human
+                  ? "border-amber-400/30 bg-amber-400/[0.06]"
+                  : "border-teal-400/25 bg-teal-400/[0.05]"
+              }`}
+            >
               <span
-                className={`flex h-8 w-8 items-center justify-center rounded-full border text-xs font-semibold transition ${
-                  s.done
-                    ? "border-green-400/60 bg-green-500/20 text-green-300 glow-green"
-                    : active
-                    ? "breathe border-cyan-400 bg-cyan-400/20 text-cyan-200"
-                    : "border-white/15 bg-slate-900 text-slate-500"
+                className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
+                  review.escalate_to_human ? "bg-amber-400/20 text-amber-300" : "bg-teal-400/20 text-teal-300"
                 }`}
               >
-                {s.done ? "✓" : i + 1}
+                {review.escalate_to_human ? <IconAlert /> : <IconCheck />}
               </span>
-              <span className={`text-[11px] ${s.done ? "text-slate-300" : active ? "text-cyan-300" : "text-slate-500"}`}>
-                {s.label}
-              </span>
+              <div>
+                <p className={`text-sm font-medium ${review.escalate_to_human ? "text-amber-300" : "text-teal-300"}`}>
+                  {review.escalate_to_human ? "Escalated for human review" : "Completed autonomously"}
+                </p>
+                <p className="mt-0.5 text-sm text-slate-400">{review.summary}</p>
+                {meta && (
+                  <p className="tnum mt-2 text-xs text-slate-500">
+                    {meta.llm_calls} model call{meta.llm_calls === 1 ? "" : "s"} &middot; {meta.cluster_size} records
+                    merged &middot; {meta.conflicts_found} conflicts &middot; {meta.actions_taken} actions
+                    {durationMs != null && <> &middot; {(durationMs / 1000).toFixed(1)}s</>}
+                  </p>
+                )}
+              </div>
             </div>
-          );
-        })}
+          )}
+        </main>
       </div>
     </div>
   );
 }
 
-function Panel({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+function HeaderStatus({ running, meta }: { running: boolean; meta: ReconciliationMeta | null }) {
+  if (running)
+    return (
+      <span className="flex items-center gap-2 text-xs text-slate-400">
+        <Spinner /> Running
+      </span>
+    );
+  if (meta)
+    return (
+      <span className={`flex items-center gap-2 text-xs ${meta.escalated ? "text-amber-300" : "text-teal-300"}`}>
+        <span className={`h-1.5 w-1.5 rounded-full ${meta.escalated ? "bg-amber-400" : "bg-teal-400"}`} />
+        {meta.escalated ? "Escalated" : "Completed"}
+      </span>
+    );
   return (
-    <section className="rise mt-6 rounded-2xl border border-white/10 bg-white/[0.02] p-5">
-      <div className="mb-4 flex items-baseline justify-between">
-        <h2 className="text-sm font-semibold uppercase tracking-[0.15em] text-slate-300">{title}</h2>
-        {subtitle && <span className="text-xs text-slate-500">{subtitle}</span>}
+    <span className="flex items-center gap-2 text-xs text-slate-500">
+      <span className="h-1.5 w-1.5 rounded-full bg-slate-600" />
+      Idle
+    </span>
+  );
+}
+
+function Panel({ title, meta, children }: { title: string; meta?: string; children: React.ReactNode }) {
+  return (
+    <section className="fade-up mt-5 rounded-lg border border-white/10 bg-white/[0.02] p-5 first:mt-0">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-medium text-white">{title}</h2>
+        {meta && <span className="text-xs text-slate-500">{meta}</span>}
       </div>
       {children}
     </section>
   );
 }
 
-function DecisionMark({ decision }: { decision: string }) {
-  const map: Record<string, string> = {
-    confirmed: "bg-green-500/20 text-green-300",
-    rejected: "bg-red-500/20 text-red-300",
-    uncertain: "bg-amber-500/20 text-amber-300",
-  };
-  const sym: Record<string, string> = { confirmed: "✓", rejected: "✕", uncertain: "?" };
+function Spinner() {
+  return <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-slate-600 border-t-teal-400" />;
+}
+
+function IconCheck() {
   return (
-    <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded text-xs font-bold ${map[decision] ?? ""}`}>
-      {sym[decision] ?? "•"}
-    </span>
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path d="M3 8.5l3.2 3.2L13 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 
-function SimBar({ value }: { value: number }) {
+function IconAlert() {
   return (
-    <span className="flex w-20 shrink-0 items-center gap-1.5">
-      <span className="h-1 flex-1 overflow-hidden rounded-full bg-white/10">
-        <span className="block h-full rounded-full bg-cyan-400/70" style={{ width: `${Math.round(value * 100)}%` }} />
-      </span>
-      <span className="mono text-[10px] text-slate-500">{value.toFixed(2)}</span>
-    </span>
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path d="M8 5.5v3.5M8 11.5v.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
   );
 }
 
-function ConfidencePill({ review }: { review: ActionReview }) {
-  const map = { high: "text-green-300", medium: "text-amber-300", low: "text-red-300" };
+function IconPulse() {
   return (
-    <span className="text-slate-500">
-      confidence <b className={map[review.confidence]}>{review.confidence}</b>
-      {review.escalate ? " · escalated" : " · autonomous"}
-    </span>
-  );
-}
-
-function ChipField({ label, items, tone }: { label: string; items: string[]; tone?: "danger" }) {
-  return (
-    <div>
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</p>
-      {items.length ? (
-        <div className="flex flex-wrap gap-1.5">
-          {items.map((it, i) => (
-            <span
-              key={i}
-              className={`rounded-md border px-2 py-1 text-xs ${
-                tone === "danger"
-                  ? "border-red-500/30 bg-red-500/10 text-red-300"
-                  : "border-white/10 bg-white/5 text-slate-200"
-              }`}
-            >
-              {it}
-            </span>
-          ))}
-        </div>
-      ) : (
-        <p className="text-xs text-slate-600">—</p>
-      )}
-    </div>
-  );
-}
-
-function MetaTile({ label, value, accent }: { label: string; value: string | number; accent?: boolean }) {
-  return (
-    <div className="rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3 text-center">
-      <div className={`text-2xl font-bold ${accent ? "text-cyan-300" : "text-white"}`}>{value}</div>
-      <div className="text-[11px] uppercase tracking-wide text-slate-500">{label}</div>
-    </div>
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path d="M1.5 8h3l2-4.5L10 12l1.8-4h2.7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }

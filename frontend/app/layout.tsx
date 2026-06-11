@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Concord — Clinical Record Reconciliation",
+  title: "Concord | Clinical Record Reconciliation",
   description: "Autonomous clinical-record reconciliation agent",
 };
 
