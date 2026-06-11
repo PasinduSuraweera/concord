@@ -90,6 +90,17 @@ class LabRecord(BaseRecord):
 AnyRecord = ClinicRecord | PharmacyRecord | LabRecord
 
 
+class MatchEvidence(BaseModel):
+    """One candidate's outcome in identity matching — the audit trail we show."""
+
+    record_id: str
+    source_type: str
+    full_name: str
+    similarity: float | None
+    decision: str  # "confirmed" | "rejected" | "uncertain"
+    reason: str
+
+
 class ConflictType(str, Enum):
     """The kinds of clinical contradiction the deterministic detector flags."""
 
@@ -214,3 +225,27 @@ class ReviewResult(BaseModel):
     reviews: list[ActionReview]
     escalate_to_human: bool  # derived from the per-action flags (any escalate)
     summary: str
+
+
+class ReconciliationMeta(BaseModel):
+    """At-a-glance facts about one reconciliation run (handy for the demo UI)."""
+
+    llm_calls: int = 2  # the architectural invariant: exactly two, always
+    cluster_size: int
+    conflicts_found: int
+    actions_taken: int
+    escalated: bool
+
+
+class ReconciliationResult(BaseModel):
+    """The full bundled output of one reconcile() run — what the API serves."""
+
+    entry_record_id: str
+    match_evidence: list[MatchEvidence]
+    cluster: list[dict[str, Any]]  # the matched source records, serialized
+    conflicts: list[Conflict]
+    adjudication: Adjudication
+    actions: list[ExecutedAction]
+    reconciled_record: ReconciledRecord
+    review: ReviewResult
+    meta: ReconciliationMeta

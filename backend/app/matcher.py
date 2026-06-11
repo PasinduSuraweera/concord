@@ -14,25 +14,20 @@ record-by-record rather than hidden behind a similarity number.
 from dataclasses import dataclass
 
 from app.db import get_client, similarity_search
-from app.models import AnyRecord, ClinicRecord, LabRecord, PharmacyRecord, PatientIdentity
+from app.models import (
+    AnyRecord,
+    ClinicRecord,
+    LabRecord,
+    MatchEvidence,
+    PatientIdentity,
+    PharmacyRecord,
+)
 
 # If DOB agrees, a vector this strong is enough on its own to confirm. (Below
 # this, we require a second exact identifier — NIC or phone.)
 RECALL_THRESHOLD = 0.75
 
 _RECORD_CLASSES = {"clinic": ClinicRecord, "lab": LabRecord, "pharmacy": PharmacyRecord}
-
-
-@dataclass
-class MatchEvidence:
-    """One candidate's outcome — the audit trail we can show on screen."""
-
-    record_id: str
-    source_type: str
-    full_name: str
-    similarity: float | None
-    decision: str  # "confirmed" | "rejected" | "uncertain"
-    reason: str
 
 
 @dataclass
@@ -111,8 +106,14 @@ def match_patient(entry_record_id: str, candidate_pool_size: int = 20) -> MatchR
     # The entry record anchors the cluster.
     cluster: list[AnyRecord] = [_row_to_record(entry_row)]
     evidence = [
-        MatchEvidence(entry_record_id, entry_row["source_type"], entry_identity.full_name,
-                      1.0, "confirmed", "entry record (anchor)")
+        MatchEvidence(
+            record_id=entry_record_id,
+            source_type=entry_row["source_type"],
+            full_name=entry_identity.full_name,
+            similarity=1.0,
+            decision="confirmed",
+            reason="entry record (anchor)",
+        )
     ]
 
     for row in similarity_search(entry_identity, match_count=candidate_pool_size):
@@ -121,8 +122,14 @@ def match_patient(entry_record_id: str, candidate_pool_size: int = 20) -> MatchR
         cand_identity = PatientIdentity.model_validate(row["identity"])
         decision, reason = _decide(entry_identity, cand_identity, row.get("similarity"))
         evidence.append(
-            MatchEvidence(row["record_id"], row["source_type"], cand_identity.full_name,
-                          row.get("similarity"), decision, reason)
+            MatchEvidence(
+                record_id=row["record_id"],
+                source_type=row["source_type"],
+                full_name=cand_identity.full_name,
+                similarity=row.get("similarity"),
+                decision=decision,
+                reason=reason,
+            )
         )
         if decision == "confirmed":
             cluster.append(_row_to_record(row))
