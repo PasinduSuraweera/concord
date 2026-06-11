@@ -23,6 +23,10 @@ from app.reviewer import review
 def assemble_result(entry_record_id, match, conflicts, adjudication, execution, review_result) -> ReconciliationResult:
     """Bundle the loop's pieces into the API result. Shared by reconcile() and the
     streaming endpoint so the two can never diverge."""
+    # The two LLM calls are skipped when there is nothing to do: adjudication only
+    # runs when there are conflicts, review only when there are actions. Report the
+    # count that actually happened rather than a hardcoded 2.
+    llm_calls = (1 if conflicts else 0) + (1 if execution.actions else 0)
     return ReconciliationResult(
         entry_record_id=entry_record_id,
         match_evidence=match.evidence,
@@ -33,7 +37,7 @@ def assemble_result(entry_record_id, match, conflicts, adjudication, execution, 
         reconciled_record=execution.reconciled_record,
         review=review_result,
         meta=ReconciliationMeta(
-            llm_calls=2,
+            llm_calls=llm_calls,
             cluster_size=len(match.records),
             conflicts_found=len(conflicts),
             actions_taken=len(execution.actions),
