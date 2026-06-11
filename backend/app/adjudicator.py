@@ -26,10 +26,10 @@ to do, applying these principles:
   allergy, or a dangerous interaction), raise the severity and choose an action that
   protects the patient.
 
-For every conflict return: the conflict_ref EXACTLY as given; a short concrete
-trusted_value; reasoning of 1-2 sentences that cites provenance/recency/corroboration;
-a severity (low|moderate|high|critical); and exactly one action
-(prescriber_alert|reconcile_record|generate_referral|no_action).
+For every conflict return: the conflict_ref as the bare token only (e.g. "C1", not
+"C1 [dose_clash]"); a short concrete trusted_value; reasoning of 1-2 sentences that
+cites provenance/recency/corroboration; a severity (low|moderate|high|critical);
+and exactly one action (prescriber_alert|reconcile_record|generate_referral|no_action).
 """
 
 # Built once; reused for every reconciliation.

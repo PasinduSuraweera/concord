@@ -12,7 +12,7 @@ from supabase import Client, create_client
 
 from app.config import settings
 from app.embeddings import embed_identity
-from app.models import AnyRecord, PatientIdentity
+from app.models import AnyRecord, ExecutedAction, PatientIdentity
 
 
 @lru_cache(maxsize=1)
@@ -50,6 +50,26 @@ def upsert_records(records: list[AnyRecord]) -> int:
     """Insert/replace records by their source-local record_id. Returns the count."""
     rows = [_to_row(r) for r in records]
     get_client().table("records").upsert(rows, on_conflict="record_id").execute()
+    return len(rows)
+
+
+def insert_actions(patient_record_id: str, actions: list[ExecutedAction]) -> int:
+    """Persist executed actions as an audit trail. Returns the number stored."""
+    rows = [
+        {
+            "patient_record_id": patient_record_id,
+            "conflict_ref": a.conflict_ref,
+            "conflict_type": a.conflict_type.value,
+            "action": a.action.value,
+            "severity": a.severity.value,
+            "title": a.title,
+            "detail": a.detail,
+            "payload": a.payload,
+        }
+        for a in actions
+    ]
+    if rows:
+        get_client().table("actions").insert(rows).execute()
     return len(rows)
 
 

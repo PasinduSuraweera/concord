@@ -54,3 +54,20 @@ as $$
     order by r.embedding <=> query_embedding
     limit match_count;
 $$;
+
+-- 5. Executed safety actions (loop step 4) — an audit trail of what the agent did.
+--    One row per adjudicated conflict (alert / reconcile / referral / no-action).
+create table if not exists actions (
+    id                bigint generated always as identity primary key,
+    created_at        timestamptz not null default now(),
+    patient_record_id text  not null,   -- the entry/anchor record id
+    conflict_ref      text  not null,   -- "C1", "C2", ... within that reconciliation
+    conflict_type     text  not null,
+    action            text  not null,
+    severity          text  not null,
+    title             text  not null,
+    detail            text  not null,
+    payload           jsonb not null default '{}'::jsonb
+);
+
+create index if not exists actions_patient_idx on actions (patient_record_id);

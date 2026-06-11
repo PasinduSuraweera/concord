@@ -158,3 +158,34 @@ class Adjudication(BaseModel):
     """The full structured result of the single batched adjudication call."""
 
     decisions: list[ConflictAdjudication]
+
+
+class ExecutedAction(BaseModel):
+    """A concrete safety action the agent carried out for one conflict (loop step 4)."""
+
+    conflict_ref: str
+    conflict_type: ConflictType
+    action: AdjudicationAction
+    severity: Severity
+    title: str  # human label for the UI / audit log
+    detail: str  # what was done and why
+    payload: dict[str, Any] = Field(default_factory=dict)  # structured specifics
+
+
+class ReconciledRecord(BaseModel):
+    """The single clean record produced by merging the cluster + applying trusted values."""
+
+    patient_record_id: str  # the entry/anchor record id
+    identity: PatientIdentity
+    diagnoses: list[str] = Field(default_factory=list)
+    medications: list[Medication] = Field(default_factory=list)
+    allergies: list[str] = Field(default_factory=list)
+    source_record_ids: list[str] = Field(default_factory=list)
+    applied_changes: list[str] = Field(default_factory=list)  # human log of reconciliations
+
+
+class ExecutionResult(BaseModel):
+    """Everything loop step 4 produced: the actions taken + the reconciled record."""
+
+    actions: list[ExecutedAction]
+    reconciled_record: ReconciledRecord
