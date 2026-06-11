@@ -189,3 +189,28 @@ class ExecutionResult(BaseModel):
 
     actions: list[ExecutedAction]
     reconciled_record: ReconciledRecord
+
+
+class Confidence(str, Enum):
+    """How confident the reviewer is in an executed action (LLM Call 2)."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class ActionReview(BaseModel):
+    """The reviewer's verdict on a single executed action."""
+
+    conflict_ref: str
+    confidence: Confidence
+    escalate: bool  # True only for low-confidence / ambiguous cases
+    note: str
+
+
+class ReviewResult(BaseModel):
+    """The structured result of the review call: per-action + an overall decision."""
+
+    reviews: list[ActionReview]
+    escalate_to_human: bool  # derived from the per-action flags (any escalate)
+    summary: str
