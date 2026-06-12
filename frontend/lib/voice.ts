@@ -1,0 +1,81 @@
+import Vapi from "@vapi-ai/web";
+
+// Browser-orchestrated voice control. Vapi handles the conversation (STT, the
+// assistant's small talk model, TTS); THIS page stays the orchestrator: it
+// watches the transcript for a patient name, runs the normal reconciliation
+// through the backend, then hands the result back for the assistant to speak.
+// Vapi's cloud never needs to reach our localhost backend.
+
+export const VAPI_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY ?? "";
+
+export type VoiceHandlers = {
+  onUserUtterance: (text: string) => void;
+  onCallStart: () => void;
+  onCallEnd: () => void;
+  onLog: (text: string) => void;
+};
+
+export type VoiceSession = {
+  stop: () => void;
+  /** Feed a finished reconciliation back to the assistant so it can speak it. */
+  reportResult: (summary: string) => void;
+};
+
+const ASSISTANT_INSTRUCTIONS = `You are the voice interface of Concord, an autonomous
+clinical-record reconciliation agent used by clinicians in Sri Lanka. Keep every reply
+to one or two short sentences.
+
+When the clinician names a patient, acknowledge briefly (for example "Running the
+reconciliation for Kamal Perera now") and wait. The application runs the actual
+reconciliation and will send you a system message with the result; when it arrives,
+summarise it conversationally: how many contradictions, the most serious finding,
+and whether it completed autonomously or needs a clinician. Do not invent clinical
+facts or give medical advice beyond what the result message contains.`;
+
+export function startVoice(handlers: VoiceHandlers, patientNames: string[]): VoiceSession {
+  const vapi = new Vapi(VAPI_PUBLIC_KEY);
+
+  vapi.on("call-start", handlers.onCallStart);
+  vapi.on("call-end", handlers.onCallEnd);
+  vapi.on("error", (e: unknown) => {
+    handlers.onLog(`Voice error: ${e instanceof Error ? e.message : JSON.stringify(e)}`);
+    handlers.onCallEnd();
+  });
+
+  vapi.on("message", (m: { type?: string; transcriptType?: string; role?: string; transcript?: string }) => {
+    if (m?.type === "transcript" && m.transcriptType === "final" && m.transcript) {
+      handlers.onLog(`${m.role === "user" ? "Clinician" : "Concord"}: "${m.transcript}"`);
+      if (m.role === "user") handlers.onUserUtterance(m.transcript);
+    }
+  });
+
+  vapi.start({
+    name: "Concord",
+    firstMessage: "Concord here. Which patient should I reconcile?",
+    transcriber: { provider: "deepgram", model: "nova-2", language: "en" },
+    voice: { provider: "vapi", voiceId: "Elliot" },
+    model: {
+      provider: "openai",
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `${ASSISTANT_INSTRUCTIONS}\n\nPatients on the roster: ${patientNames.join(", ")}.`,
+        },
+      ],
+    },
+  });
+
+  return {
+    stop: () => vapi.stop(),
+    reportResult: (summary: string) => {
+      vapi.send({
+        type: "add-message",
+        message: {
+          role: "system",
+          content: `Reconciliation result, summarise this aloud briefly: ${summary}`,
+        },
+      });
+    },
+  };
+}

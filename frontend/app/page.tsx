@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getPatients } from "@/lib/api";
 import { streamReconcile } from "@/lib/stream";
+import { startVoice, VAPI_PUBLIC_KEY, type VoiceSession } from "@/lib/voice";
 import type {
   ActionReview,
   Conflict,
@@ -23,6 +24,8 @@ const SEVERITY_INK: Record<Severity, string> = {
   moderate: "text-amber-700",
   low: "text-stone-400",
 };
+
+const SEVERITY_RANK: Record<Severity, number> = { critical: 3, high: 2, moderate: 1, low: 0 };
 
 const normRef = (r: string) => r.match(/C\d+/i)?.[0]?.toUpperCase() ?? r;
 const initials = (name: string) =>
@@ -53,13 +56,23 @@ export default function Home() {
   const [durationMs, setDurationMs] = useState<number | null>(null);
   const [finishedAt, setFinishedAt] = useState<Date | null>(null);
 
+  const [voiceState, setVoiceState] = useState<"off" | "connecting" | "live">("off");
+
   const closeRef = useRef<(() => void) | null>(null);
   const startRef = useRef<number>(0);
+  const voiceRef = useRef<VoiceSession | null>(null);
+  const patientsRef = useRef<Patient[]>([]);
+  const runningRef = useRef(false);
 
   useEffect(() => {
     getPatients().then(setPatients).catch((e) => setLoadError(String(e)));
-    return () => closeRef.current?.();
+    return () => {
+      closeRef.current?.();
+      voiceRef.current?.stop();
+    };
   }, []);
+  patientsRef.current = patients;
+  runningRef.current = running;
 
   const addLog = (text: string) => setLog((l) => [...l, { at: new Date(), text }]);
 
@@ -75,8 +88,10 @@ export default function Home() {
     return m;
   }, [review]);
 
-  function onReconcile() {
-    if (!selectedId) return;
+  function onReconcile(recordId?: string) {
+    const id = recordId ?? selectedId;
+    if (!id || runningRef.current) return;
+    setSelectedId(id);
     closeRef.current?.();
     setRunning(true);
     setError(null);
@@ -88,10 +103,10 @@ export default function Home() {
     setMeta(null);
     setDurationMs(null);
     setFinishedAt(null);
-    setLog([{ at: new Date(), text: `Run started for ${selectedId}` }]);
+    setLog([{ at: new Date(), text: `Run started for ${id}` }]);
     startRef.current = performance.now();
 
-    closeRef.current = streamReconcile(selectedId, {
+    closeRef.current = streamReconcile(id, {
       onMatched: (d) => {
         setMatchEvidence(d.match_evidence);
         const confirmed = d.match_evidence.filter((e) => e.decision === "confirmed").length;
@@ -117,6 +132,18 @@ export default function Home() {
         setDurationMs(ms);
         setFinishedAt(new Date());
         addLog(`Complete in ${(ms / 1000).toFixed(1)}s, ${d.meta.llm_calls} model call(s)`);
+        if (voiceRef.current) {
+          const worst = d.actions.length
+            ? d.actions.map((a) => a.severity).sort((x, y) => SEVERITY_RANK[y] - SEVERITY_RANK[x])[0]
+            : null;
+          voiceRef.current.reportResult(
+            `Patient ${d.reconciled_record.identity.full_name}: ${d.meta.conflicts_found} contradiction(s) ` +
+              `across ${d.meta.cluster_size} matched records` +
+              (worst ? `, most serious severity ${worst}` : "") +
+              `. ${d.review.summary} ` +
+              (d.meta.escalated ? "Escalated for clinician review." : "Completed autonomously."),
+          );
+        }
       },
       onError: (msg) => {
         setError(msg);
@@ -124,6 +151,36 @@ export default function Home() {
         addLog("Stream error");
       },
     });
+  }
+
+  function onUserUtterance(text: string) {
+    // The page is the orchestrator: a patient named on the call starts a normal run.
+    if (runningRef.current) return;
+    const words = text.toLowerCase().split(/[^a-z]+/);
+    const hits = patientsRef.current.filter((p) =>
+      words.includes(p.full_name.split(/\s+/)[0].toLowerCase()),
+    );
+    if (hits.length === 1) onReconcile(hits[0].record_id);
+  }
+
+  function toggleVoice() {
+    if (voiceRef.current) {
+      voiceRef.current.stop();
+      return;
+    }
+    setVoiceState("connecting");
+    voiceRef.current = startVoice(
+      {
+        onUserUtterance,
+        onCallStart: () => setVoiceState("live"),
+        onCallEnd: () => {
+          voiceRef.current = null;
+          setVoiceState("off");
+        },
+        onLog: addLog,
+      },
+      patientsRef.current.map((p) => p.full_name),
+    );
   }
 
   const steps = [
@@ -143,12 +200,27 @@ export default function Home() {
           <div className="flex items-baseline gap-3">
             <span className="display text-[22px] font-medium tracking-tight text-[#211f19]">Concord</span>
           </div>
-          <HeaderStatus
-            running={running}
-            patientName={patients.find((p) => p.record_id === selectedId)?.full_name}
-            finishedAt={finishedAt}
-            durationMs={durationMs}
-          />
+          <div className="flex items-center gap-5">
+            <HeaderStatus
+              running={running}
+              patientName={patients.find((p) => p.record_id === selectedId)?.full_name}
+              finishedAt={finishedAt}
+              durationMs={durationMs}
+            />
+            <button
+              onClick={toggleVoice}
+              disabled={!VAPI_PUBLIC_KEY || voiceState === "connecting"}
+              title={VAPI_PUBLIC_KEY ? undefined : "Set NEXT_PUBLIC_VAPI_PUBLIC_KEY in frontend/.env.local"}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
+                voiceState === "live"
+                  ? "bg-[#211f19] text-[#faf9f5] hover:bg-black"
+                  : "border border-[#d8d3c6] text-[#44413a] hover:bg-[#f1efe7] disabled:cursor-not-allowed disabled:opacity-50"
+              }`}
+            >
+              <IconMic />
+              {voiceState === "off" ? "Voice" : voiceState === "connecting" ? "Connecting" : "End call"}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -194,7 +266,7 @@ export default function Home() {
           </div>
 
           <button
-            onClick={onReconcile}
+            onClick={() => onReconcile()}
             disabled={!selectedId || running}
             className="mt-5 w-full rounded-lg bg-[#211f19] py-2.5 text-[13.5px] font-medium text-[#faf9f5] transition hover:bg-black disabled:cursor-not-allowed disabled:bg-[#e8e4d9] disabled:text-[#a8a399]"
           >
@@ -358,6 +430,25 @@ export default function Home() {
                                 )}
                               </p>
                               <p className="mt-1.5 text-[12.5px] leading-relaxed text-[#6f6b60]">{action.detail}</p>
+                              {(() => {
+                                const cites = (action.payload?.guidelines ?? []) as {
+                                  id: string;
+                                  title: string;
+                                  source: string;
+                                }[];
+                                if (!cites.length) return null;
+                                return (
+                                  <p className="mt-2 border-t border-[#e6e2d6] pt-2 text-[11.5px] leading-relaxed text-[#8a8578]">
+                                    Grounded in{" "}
+                                    {cites.map((g, gi) => (
+                                      <span key={g.id}>
+                                        {gi > 0 && "; "}
+                                        <span className="mono">{g.id}</span> {g.title}, {g.source}
+                                      </span>
+                                    ))}
+                                  </p>
+                                );
+                              })()}
                             </div>
                           )}
                         </div>
@@ -525,6 +616,15 @@ function IconAlert() {
   return (
     <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden>
       <path d="M8 4.5v4M8 11.5v.01" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconMic() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <rect x="6" y="1.5" width="4" height="8" rx="2" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M3.5 7.5a4.5 4.5 0 009 0M8 12v2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
