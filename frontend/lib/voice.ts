@@ -35,11 +35,17 @@ When the clinician indicates a patient, by name or indirectly ("the first one",
 which patient they mean, ask them to confirm the name instead.
 
 The application runs the actual reconciliation and will send you a system message
-with the result; when it arrives, summarise it conversationally: how many
-contradictions, the most serious finding, and whether it completed autonomously or
-needs a clinician. Never use the phrase "running the reconciliation" in summaries,
-only in the confirmation sentence. Do not invent clinical facts or give medical
-advice beyond what the result message contains.`;
+with the full result data; when it arrives, first summarise it aloud in two or
+three sentences: how many contradictions, the most serious finding, and whether it
+completed autonomously or needs a clinician. Then offer to go deeper ("Want the
+details?").
+
+After that, answer follow-up questions in as much detail as asked, strictly from
+the result data: quote exact doses, dates, sources, confidence levels and guideline
+ids when relevant. If asked about something not present in the data, say it is not
+in the record. Never use the phrase "running the reconciliation" in summaries or
+answers, only in the confirmation sentence. Do not give medical advice beyond what
+the result data contains.`;
 
 export function startVoice(handlers: VoiceHandlers, patientNames: string[]): VoiceSession {
   const vapi = new Vapi(VAPI_PUBLIC_KEY);
@@ -73,7 +79,7 @@ export function startVoice(handlers: VoiceHandlers, patientNames: string[]): Voi
     voice: { provider: "vapi", voiceId: "Elliot" },
     model: {
       provider: "openai",
-      model: "gpt-4o-mini",
+      model: "gpt-4o",
       messages: [
         {
           role: "system",
@@ -85,12 +91,15 @@ export function startVoice(handlers: VoiceHandlers, patientNames: string[]): Voi
 
   return {
     stop: () => vapi.stop(),
-    reportResult: (summary: string) => {
+    reportResult: (resultDetail: string) => {
       vapi.send({
         type: "add-message",
         message: {
           role: "system",
-          content: `Reconciliation result, summarise this aloud briefly: ${summary}`,
+          content:
+            "Reconciliation finished. Full result data follows. Summarise it aloud in 2-3 " +
+            "sentences now, then answer follow-up questions in detail from this data only.\n\n" +
+            resultDetail,
         },
       });
     },

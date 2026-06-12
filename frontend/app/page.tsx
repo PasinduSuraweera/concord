@@ -12,6 +12,7 @@ import type {
   Patient,
   ReconciledRecord,
   ReconciliationMeta,
+  ReconciliationResult,
   ReviewResult,
   Severity,
 } from "@/lib/types";
@@ -37,6 +38,50 @@ const initials = (name: string) =>
     .toUpperCase();
 
 type LogEntry = { at: Date; text: string };
+
+/** Everything the voice assistant needs to summarise the run and then answer
+ * detailed follow-ups: verdicts with reasoning and citations, the reconciled
+ * record with exact doses, and the reviewer's confidences. */
+function formatResultForVoice(d: ReconciliationResult): string {
+  const r = d.reconciled_record;
+  const worst = d.actions.length
+    ? d.actions.map((a) => a.severity).sort((x, y) => SEVERITY_RANK[y] - SEVERITY_RANK[x])[0]
+    : null;
+
+  const conflicts = d.conflicts.map((c, i) => {
+    const ref = `C${i + 1}`;
+    const a = d.actions.find((x) => normRef(x.conflict_ref) === ref);
+    const rev = d.review.reviews.find((x) => normRef(x.conflict_ref) === ref);
+    const cites = ((a?.payload?.guidelines ?? []) as { id: string; title: string }[])
+      .map((g) => `${g.id} (${g.title})`)
+      .join("; ");
+    return [
+      `${ref} ${c.conflict_type.replace(/_/g, " ")}: ${c.description}`,
+      a ? `  Verdict: ${a.severity}, ${a.action.replace(/_/g, " ")}. Trusted: ${a.payload?.trusted_value ?? ""}` : "",
+      a ? `  Reasoning: ${a.detail}` : "",
+      cites ? `  Guidelines: ${cites}` : "",
+      rev ? `  Reviewer confidence: ${rev.confidence}${rev.escalate ? ", escalated" : ""}. ${rev.note}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  });
+
+  return [
+    `Patient: ${r.identity.full_name}, DOB ${r.identity.date_of_birth ?? "unknown"}, NIC ${r.identity.nic ?? "unknown"}.`,
+    `Records merged: ${r.source_record_ids.join(", ")} (${d.meta.cluster_size} sources).`,
+    `Contradictions: ${d.meta.conflicts_found}${worst ? `, most serious ${worst}` : ""}.`,
+    "",
+    ...conflicts,
+    "",
+    `Reconciled medications: ${r.medications.map((m) => `${m.name} ${m.dose ?? ""} ${m.frequency ?? ""}`.trim()).join("; ") || "none"}.`,
+    `Allergies: ${r.allergies.join(", ") || "none recorded"}.`,
+    `Diagnoses: ${r.diagnoses.join("; ") || "none recorded"}.`,
+    `Changes applied: ${r.applied_changes.join(" ") || "none"}.`,
+    "",
+    `Review: ${d.review.summary}`,
+    `Outcome: ${d.meta.escalated ? "escalated for clinician review" : "completed autonomously"}, ${d.meta.llm_calls} model calls.`,
+  ].join("\n");
+}
 
 export default function Home() {
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -132,18 +177,7 @@ export default function Home() {
         setDurationMs(ms);
         setFinishedAt(new Date());
         addLog(`Complete in ${(ms / 1000).toFixed(1)}s, ${d.meta.llm_calls} model call(s)`);
-        if (voiceRef.current) {
-          const worst = d.actions.length
-            ? d.actions.map((a) => a.severity).sort((x, y) => SEVERITY_RANK[y] - SEVERITY_RANK[x])[0]
-            : null;
-          voiceRef.current.reportResult(
-            `Patient ${d.reconciled_record.identity.full_name}: ${d.meta.conflicts_found} contradiction(s) ` +
-              `across ${d.meta.cluster_size} matched records` +
-              (worst ? `, most serious severity ${worst}` : "") +
-              `. ${d.review.summary} ` +
-              (d.meta.escalated ? "Escalated for clinician review." : "Completed autonomously."),
-          );
-        }
+        if (voiceRef.current) voiceRef.current.reportResult(formatResultForVoice(d));
       },
       onError: (msg) => {
         setError(msg);
