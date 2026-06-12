@@ -59,10 +59,17 @@ export function startVoice(handlers: VoiceHandlers, patientNames: string[]): Voi
     }
   });
 
+  // Bias the transcriber toward the roster's Sri Lankan names ("Dilani",
+  // "Wickramasinghe"), which a general English model otherwise mangles.
+  // Deepgram keyword boosting: "word:weight", deduped tokens from full names.
+  const nameKeywords = [...new Set(patientNames.flatMap((n) => n.split(/\s+/)))].map(
+    (token) => `${token}:3`,
+  );
+
   vapi.start({
     name: "Concord",
     firstMessage: "Concord here. Which patient should I reconcile?",
-    transcriber: { provider: "deepgram", model: "nova-2", language: "en" },
+    transcriber: { provider: "deepgram", model: "nova-2", language: "en", keywords: nameKeywords },
     voice: { provider: "vapi", voiceId: "Elliot" },
     model: {
       provider: "openai",
