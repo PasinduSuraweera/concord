@@ -10,6 +10,10 @@ export const VAPI_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY ?? "";
 
 export type VoiceHandlers = {
   onUserUtterance: (text: string) => void;
+  /** Assistant speech; used to catch its run confirmation ("Running the
+   * reconciliation for X now"), which resolves indirect references like
+   * "the first one" into a concrete patient name. */
+  onAssistantUtterance: (text: string) => void;
   onCallStart: () => void;
   onCallEnd: () => void;
   onLog: (text: string) => void;
@@ -25,12 +29,17 @@ const ASSISTANT_INSTRUCTIONS = `You are the voice interface of Concord, an auton
 clinical-record reconciliation agent used by clinicians in Sri Lanka. Keep every reply
 to one or two short sentences.
 
-When the clinician names a patient, acknowledge briefly (for example "Running the
-reconciliation for Kamal Perera now") and wait. The application runs the actual
-reconciliation and will send you a system message with the result; when it arrives,
-summarise it conversationally: how many contradictions, the most serious finding,
-and whether it completed autonomously or needs a clinician. Do not invent clinical
-facts or give medical advice beyond what the result message contains.`;
+When the clinician indicates a patient, by name or indirectly ("the first one",
+"that one"), confirm with EXACTLY this sentence, naming them in full:
+"Running the reconciliation for <full name> now." Then wait. If you cannot tell
+which patient they mean, ask them to confirm the name instead.
+
+The application runs the actual reconciliation and will send you a system message
+with the result; when it arrives, summarise it conversationally: how many
+contradictions, the most serious finding, and whether it completed autonomously or
+needs a clinician. Never use the phrase "running the reconciliation" in summaries,
+only in the confirmation sentence. Do not invent clinical facts or give medical
+advice beyond what the result message contains.`;
 
 export function startVoice(handlers: VoiceHandlers, patientNames: string[]): VoiceSession {
   const vapi = new Vapi(VAPI_PUBLIC_KEY);
@@ -46,6 +55,7 @@ export function startVoice(handlers: VoiceHandlers, patientNames: string[]): Voi
     if (m?.type === "transcript" && m.transcriptType === "final" && m.transcript) {
       handlers.onLog(`${m.role === "user" ? "Clinician" : "Concord"}: "${m.transcript}"`);
       if (m.role === "user") handlers.onUserUtterance(m.transcript);
+      else handlers.onAssistantUtterance(m.transcript);
     }
   });
 

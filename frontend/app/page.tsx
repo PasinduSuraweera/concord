@@ -153,14 +153,29 @@ export default function Home() {
     });
   }
 
-  function onUserUtterance(text: string) {
-    // The page is the orchestrator: a patient named on the call starts a normal run.
-    if (runningRef.current) return;
+  function matchPatientByFirstName(text: string): Patient | null {
+    // First-name token match: robust to the transcriber's surname spellings
+    // ("Pereira" for "Perera") and to shared surnames on the roster.
     const words = text.toLowerCase().split(/[^a-z]+/);
     const hits = patientsRef.current.filter((p) =>
       words.includes(p.full_name.split(/\s+/)[0].toLowerCase()),
     );
-    if (hits.length === 1) onReconcile(hits[0].record_id);
+    return hits.length === 1 ? hits[0] : null;
+  }
+
+  function onUserUtterance(text: string) {
+    // The page is the orchestrator: a patient named on the call starts a normal run.
+    if (runningRef.current) return;
+    const hit = matchPatientByFirstName(text);
+    if (hit) onReconcile(hit.record_id);
+  }
+
+  function onAssistantUtterance(text: string) {
+    // Indirect references ("the first one") are resolved by the assistant, which
+    // confirms with "Running the reconciliation for <name> now". Act on that.
+    if (runningRef.current || !/running the reconciliation/i.test(text)) return;
+    const hit = matchPatientByFirstName(text);
+    if (hit) onReconcile(hit.record_id);
   }
 
   function toggleVoice() {
@@ -172,6 +187,7 @@ export default function Home() {
     voiceRef.current = startVoice(
       {
         onUserUtterance,
+        onAssistantUtterance,
         onCallStart: () => setVoiceState("live"),
         onCallEnd: () => {
           voiceRef.current = null;
