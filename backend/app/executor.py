@@ -10,6 +10,7 @@ import re
 from collections import OrderedDict
 
 from app.db import insert_actions
+from app.guidelines import GUIDELINES_BY_ID
 from app.models import (
     Adjudication,
     AdjudicationAction,
@@ -63,6 +64,15 @@ def _build_action(decision: ConflictAdjudication, conflict: Conflict) -> Execute
             "parties": [
                 {"source": p.source_type.value, "record_id": p.record_id, "value": p.value}
                 for p in conflict.parties
+            ],
+            "guidelines": [
+                {
+                    "id": ref,
+                    "title": GUIDELINES_BY_ID[ref].title,
+                    "source": GUIDELINES_BY_ID[ref].source,
+                }
+                for ref in decision.guideline_refs
+                if ref in GUIDELINES_BY_ID  # drop any id the model invented
             ],
         },
     )

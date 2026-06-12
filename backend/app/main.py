@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
-from app.adjudicator import adjudicate
+from app.adjudicator import adjudicate, build_patient_context
 from app.config import settings
 from app.db import list_entry_records, upsert_records
 from app.detector import detect_conflicts
@@ -74,7 +74,7 @@ def _reconcile_events(record_id: str):
     conflicts = detect_conflicts(match.records)  # 2
     yield _sse("detected", {"conflicts": [c.model_dump(mode="json") for c in conflicts]})
 
-    adjudication = adjudicate(conflicts)  # 3 (LLM call 1)
+    adjudication = adjudicate(conflicts, build_patient_context(match.records))  # 3 (LLM call 1)
     yield _sse("adjudicated", {"adjudication": adjudication.model_dump(mode="json")})
 
     execution = execute(record_id, match.records, conflicts, adjudication, persist=True)  # 4

@@ -12,7 +12,7 @@ It returns one bundled, JSON-serializable ReconciliationResult. Exactly two LLM
 calls happen regardless of how many conflicts were found.
 """
 
-from app.adjudicator import adjudicate
+from app.adjudicator import adjudicate, build_patient_context
 from app.detector import detect_conflicts
 from app.executor import execute
 from app.matcher import match_patient
@@ -50,7 +50,7 @@ def reconcile(entry_record_id: str, persist: bool = True) -> ReconciliationResul
     """Run the whole loop for one patient (identified by their clinic record id)."""
     match = match_patient(entry_record_id)                       # 1
     conflicts = detect_conflicts(match.records)                  # 2
-    adjudication = adjudicate(conflicts)                         # 3  (LLM call 1)
+    adjudication = adjudicate(conflicts, build_patient_context(match.records))  # 3  (LLM call 1)
     execution = execute(entry_record_id, match.records, conflicts, adjudication, persist=persist)  # 4
     review_result = review(execution)                            # 5  (LLM call 2)
     return assemble_result(entry_record_id, match, conflicts, adjudication, execution, review_result)

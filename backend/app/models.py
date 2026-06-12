@@ -163,6 +163,8 @@ class ConflictAdjudication(BaseModel):
     reasoning: str  # why, citing provenance / recency / corroboration
     severity: Severity
     action: AdjudicationAction
+    # Ids of retrieved clinical guidelines the verdict relied on (may be empty).
+    guideline_refs: list[str] = Field(default_factory=list)
 
 
 class Adjudication(BaseModel):
