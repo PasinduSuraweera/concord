@@ -10,9 +10,6 @@ export const VAPI_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY ?? "";
 
 export type VoiceHandlers = {
   onUserUtterance: (text: string) => void;
-  /** Assistant speech; used to catch its run confirmation ("Running the
-   * reconciliation for X now"), which resolves indirect references like
-   * "the first one" into a concrete patient name. */
   onAssistantUtterance: (text: string) => void;
   onCallStart: () => void;
   onCallEnd: () => void;
@@ -21,7 +18,6 @@ export type VoiceHandlers = {
 
 export type VoiceSession = {
   stop: () => void;
-  /** Feed a finished reconciliation back to the assistant so it can speak it. */
   reportResult: (summary: string) => void;
 };
 
@@ -29,10 +25,16 @@ const ASSISTANT_INSTRUCTIONS = `You are the voice interface of Concord, an auton
 clinical-record reconciliation agent used by clinicians in Sri Lanka. Keep every reply
 to one or two short sentences.
 
-When the clinician indicates a patient, by name or indirectly ("the first one",
-"that one"), confirm with EXACTLY this sentence, naming them in full:
-"Running the reconciliation for <full name> now." Then wait. If you cannot tell
-which patient they mean, ask them to confirm the name instead.
+The clinician can identify a patient three ways: by name, indirectly ("the first
+one"), or by their record id (e.g. "NWK-1042" or just "ten forty-two"). Names may
+be misheard, so if they give a record id, prefer it.
+
+When you know which patient they mean, respond with a short confirmation that
+includes BOTH their full name and their record id, and says you are running it now,
+for example: "Running the reconciliation for [Patient Name], [Record ID], now." Always
+include the record id when you have it. Then wait. If you cannot tell which patient
+they mean, ask them to confirm the name or read out the NWK number, and do NOT name
+a specific patient in that clarifying question.
 
 The application runs the actual reconciliation and will send you a system message
 with the full result data; when it arrives, first summarise it aloud in two or
@@ -57,17 +59,35 @@ export function startVoice(handlers: VoiceHandlers, patientNames: string[]): Voi
     handlers.onCallEnd();
   });
 
-  vapi.on("message", (m: { type?: string; transcriptType?: string; role?: string; transcript?: string }) => {
-    if (m?.type === "transcript" && m.transcriptType === "final" && m.transcript) {
-      handlers.onLog(`${m.role === "user" ? "Clinician" : "Concord"}: "${m.transcript}"`);
-      if (m.role === "user") handlers.onUserUtterance(m.transcript);
-      else handlers.onAssistantUtterance(m.transcript);
-    }
-  });
+  let lastAssistantHandled = "";
 
-  // Bias the transcriber toward the roster's Sri Lankan names ("Dilani",
-  // "Wickramasinghe"), which a general English model otherwise mangles.
-  // Deepgram keyword boosting: "word:weight", deduped tokens from full names.
+  vapi.on(
+    "message",
+    (m: {
+      type?: string;
+      transcriptType?: string;
+      role?: string;
+      transcript?: string;
+      messages?: { role?: string; message?: string; content?: string }[];
+    }) => {
+      if (m?.type === "transcript" && m.transcriptType === "final" && m.transcript) {
+        handlers.onLog(`${m.role === "user" ? "Clinician" : "Concord"}: "${m.transcript}"`);
+        if (m.role === "user") handlers.onUserUtterance(m.transcript);
+        return;
+      }
+
+      if (m?.type === "conversation-update" && Array.isArray(m.messages)) {
+        const assistantMsgs = m.messages.filter((x) => x.role === "assistant" || x.role === "bot");
+        const last = assistantMsgs[assistantMsgs.length - 1];
+        const text = last?.message ?? last?.content ?? "";
+        if (text && text !== lastAssistantHandled) {
+          lastAssistantHandled = text;
+          handlers.onAssistantUtterance(text);
+        }
+      }
+    },
+  );
+  
   const nameKeywords = [...new Set(patientNames.flatMap((n) => n.split(/\s+/)))].map(
     (token) => `${token}:3`,
   );
@@ -75,7 +95,7 @@ export function startVoice(handlers: VoiceHandlers, patientNames: string[]): Voi
   vapi.start({
     name: "Concord",
     firstMessage: "Concord here. Which patient should I reconcile?",
-    transcriber: { provider: "deepgram", model: "nova-2", language: "en", keywords: nameKeywords },
+    transcriber: { provider: "deepgram", model: "nova-3-medical", language: "en", keywords: nameKeywords },
     voice: { provider: "vapi", voiceId: "Elliot" },
     model: {
       provider: "openai",

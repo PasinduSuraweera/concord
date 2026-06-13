@@ -29,6 +29,25 @@ const SEVERITY_INK: Record<Severity, string> = {
 const SEVERITY_RANK: Record<Severity, number> = { critical: 3, high: 2, moderate: 1, low: 0 };
 
 const normRef = (r: string) => r.match(/C\d+/i)?.[0]?.toUpperCase() ?? r;
+
+/** Edit distance between two lowercase strings, for fuzzy name matching against
+ * mis-transcribed Sinhala names. Iterative two-row implementation. */
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  let curr = new Array<number>(b.length + 1);
+  for (let i = 1; i <= a.length; i++) {
+    curr[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
+    }
+    [prev, curr] = [curr, prev];
+  }
+  return prev[b.length];
+}
 const initials = (name: string) =>
   name
     .split(/\s+/)
@@ -187,28 +206,62 @@ export default function Home() {
     });
   }
 
-  function matchPatientByFirstName(text: string): Patient | null {
-    // First-name token match: robust to the transcriber's surname spellings
-    // ("Pereira" for "Perera") and to shared surnames on the roster.
-    const words = text.toLowerCase().split(/[^a-z]+/);
-    const hits = patientsRef.current.filter((p) =>
-      words.includes(p.full_name.split(/\s+/)[0].toLowerCase()),
-    );
-    return hits.length === 1 ? hits[0] : null;
+  function matchPatient(text: string): Patient | null {
+    // Two ways in, so a garbled Sinhala name still resolves:
+    // (a) the record id, which is mostly digits and transcribes reliably
+    //     ("NWK ten forty two", "1042", "N W K 1042"), and
+    // (b) a fuzzy match on the FIRST name (the discriminating token; surnames
+    //     are shared on this roster, so they must not drive the match).
+    const lower = text.toLowerCase();
+
+    // (a) Record id wins whenever present: ids are mostly digits and transcribe
+    //     reliably, unlike Sinhala names. Match each id's number as a WHOLE token
+    //     (a standalone digit run), so "1100" can't match inside "11001".
+    const spokenNumbers = new Set(lower.match(/\d{3,}/g) ?? []);
+    if (spokenNumbers.size > 0) {
+      const byId = patientsRef.current.find((p) => spokenNumbers.has(p.record_id.replace(/\D/g, "")));
+      // An id was clearly spoken; trust it and never fall through to a fuzzy name.
+      return byId ?? null;
+    }
+
+    // (b) No id: fuzzy match on the FIRST name (the discriminating token; surnames
+    //     are shared on this roster, so they must not drive the match).
+    const words = lower.split(/[^a-z]+/).filter((w) => w.length >= 3);
+    if (words.length === 0) return null;
+    const scoreFor = (p: Patient): number => {
+      const first = p.full_name.toLowerCase().split(/\s+/)[0];
+      return Math.max(...words.map((w) => 1 - levenshtein(w, first) / Math.max(w.length, first.length)));
+    };
+    const ranked = patientsRef.current
+      .map((p) => ({ p, score: scoreFor(p) }))
+      .sort((a, b) => b.score - a.score);
+    if (ranked.length === 0 || ranked[0].score < 0.84) return null;
+    const runnerUp = ranked[1]?.score ?? 0;
+    // Require a clear gap to the runner-up unless it is a near-exact hit, so a
+    // one-character miss (Kamala vs Kamal) resolves to nobody rather than wrongly.
+    if (ranked[0].score - runnerUp < 0.12 && ranked[0].score < 0.95) return null;
+    return ranked[0].p;
   }
 
   function onUserUtterance(text: string) {
-    // The page is the orchestrator: a patient named on the call starts a normal run.
+    // The page is the orchestrator: a patient named (or their id read) on the
+    // call starts a normal run.
     if (runningRef.current) return;
-    const hit = matchPatientByFirstName(text);
+    const hit = matchPatient(text);
     if (hit) onReconcile(hit.record_id);
   }
 
   function onAssistantUtterance(text: string) {
-    // Indirect references ("the first one") are resolved by the assistant, which
-    // confirms with "Running the reconciliation for <name> now". Act on that.
-    if (runningRef.current || !/running the reconciliation/i.test(text)) return;
-    const hit = matchPatientByFirstName(text);
+    // The assistant resolves indirect references ("the first one") to a patient
+    // and confirms a run. We trigger when its committed message both names a
+    // single patient AND signals run intent, rather than matching one exact
+    // phrase (which broke when STT/wording varied). Summaries describe a finished
+    // run ("contradictions", "completed"), so they won't re-fire.
+    if (runningRef.current) return;
+    const intent = /\b(reconcil|running|pulling|let me|i'?ll|starting|run)\b/i.test(text);
+    const finished = /\b(found|contradiction|conflict|completed|autonomous|escalat|summary|result)\b/i.test(text);
+    if (!intent || finished) return;
+    const hit = matchPatient(text);
     if (hit) onReconcile(hit.record_id);
   }
 
