@@ -74,6 +74,42 @@ def list_entry_records() -> list[dict]:
     ]
 
 
+def search_entry_records(query: str, limit: int = 8) -> list[dict]:
+    """Clinic entry records whose patient matches a free-text query.
+
+    The query may be part of a name, a record id, or an NIC. We match on the
+    queryable identity/provenance columns directly (case-insensitive), so a
+    clinician can find a patient to start a run without scrolling the roster.
+    This is the patient-facing lookup; the vector search in similarity_search is
+    the agent's internal identity recall (a different job).
+    """
+    q = query.strip()
+    if not q:
+        return list_entry_records()
+
+    like = f"%{q}%"
+    response = (
+        get_client()
+        .table("records")
+        .select("record_id, source_name, record_date, identity")
+        .eq("source_type", "clinic")
+        # identity is JSONB; ->> extracts the text value for an ilike match.
+        .or_(f"record_id.ilike.{like},identity->>full_name.ilike.{like},identity->>nic.ilike.{like}")
+        .order("record_id")
+        .limit(limit)
+        .execute()
+    )
+    return [
+        {
+            "record_id": r["record_id"],
+            "full_name": r["identity"].get("full_name"),
+            "source_name": r["source_name"],
+            "record_date": r["record_date"],
+        }
+        for r in response.data
+    ]
+
+
 def insert_actions(patient_record_id: str, actions: list[ExecutedAction]) -> int:
     """Persist executed actions as an audit trail. Returns the number stored."""
     rows = [

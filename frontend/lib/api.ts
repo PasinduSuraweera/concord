@@ -10,6 +10,12 @@ export async function getPatients(): Promise<Patient[]> {
   return res.json();
 }
 
+export async function searchPatients(query: string): Promise<Patient[]> {
+  const res = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}`);
+  if (!res.ok) throw new Error(`GET /search failed (${res.status})`);
+  return res.json();
+}
+
 export async function reconcile(recordId: string): Promise<ReconciliationResult> {
   const res = await fetch(`${API_BASE}/reconcile/${recordId}`);
   if (!res.ok) throw new Error(`GET /reconcile failed (${res.status})`);

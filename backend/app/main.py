@@ -1,18 +1,24 @@
 import json
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from pydantic import TypeAdapter
 
 from app.adjudicator import adjudicate, build_patient_context
 from app.config import settings
-from app.db import list_entry_records, upsert_records
+from app.db import list_entry_records, search_entry_records, upsert_records
 from app.detector import detect_conflicts
 from app.executor import execute
 from app.matcher import match_patient
+from app.models import AnyRecord
 from app.orchestrator import assemble_result, reconcile
 from app.reviewer import review
 from app.seed.loader import load_all_records
+
+# Validates an uploaded JSON array into the right per-source record types
+# (clinic / lab / pharmacy), discriminated by each record's source_type.
+_records_adapter = TypeAdapter(list[AnyRecord])
 
 app = FastAPI(title=settings.app_name, version=settings.version)
 
@@ -43,10 +49,30 @@ def seed() -> dict[str, int]:
     return {"seeded": upsert_records(load_all_records())}
 
 
+@app.post("/records")
+async def upload_records(records: list[dict]) -> dict[str, int]:
+    """Ingest a batch of source records (clinic/lab/pharmacy) as JSON.
+
+    This is how real data gets in: a clinic/lab/pharmacy export, or many at once,
+    posted as a JSON array. Each record is validated against the same models the
+    seed loader uses, then embedded and upserted by record_id (re-posting updates
+    in place). The reconciliation engine treats uploaded data exactly like seeded
+    data, so nothing downstream changes.
+    """
+    validated = _records_adapter.validate_python(records)
+    return {"ingested": upsert_records(validated)}
+
+
 @app.get("/patients")
 def patients() -> list[dict]:
     """The clinic records a clinician can start a reconciliation from (the picker)."""
     return list_entry_records()
+
+
+@app.get("/search")
+def search(q: str = Query("", description="name, record id, or NIC")) -> list[dict]:
+    """Find clinic entry records by partial name / record id / NIC (the search box)."""
+    return search_entry_records(q)
 
 
 @app.get("/reconcile/{record_id}")

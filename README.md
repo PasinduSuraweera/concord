@@ -177,6 +177,27 @@ once in the Supabase SQL editor, then `POST /seed` to load the mock datasets.
 
 Health check: <http://127.0.0.1:8000/health>
 
+### Loading your own data
+
+The seeded datasets are just a demo starting point. To ingest real (or more) data,
+`POST /records` a JSON array of source records and they are validated, embedded, and
+indexed exactly like the seed data, so the reconciliation engine is not limited to
+the bundled patients:
+
+```bash
+curl -X POST http://127.0.0.1:8000/records \
+  -H "Content-Type: application/json" \
+  -d '[{"record_id":"NWK-2001","source_type":"clinic",
+        "source_name":"Nawaloka Medical Centre, Colombo 05","record_date":"2026-06-10",
+        "identity":{"full_name":"Anoma Silva","date_of_birth":"1979-02-11","nic":"795551234V","gender":"F"},
+        "diagnoses":["Essential hypertension"],
+        "medications":[{"name":"Amlodipine","dose":"5mg","frequency":"OD"}],"allergies":[]}]'
+```
+
+Each record's `source_type` (`clinic` / `lab` / `pharmacy`) selects its schema.
+Upserts are keyed by `record_id`, so re-posting updates a record in place. The roster
+search box then finds any uploaded patient by name, record id, or NIC.
+
 ### Frontend
 
 ```bash
@@ -194,6 +215,8 @@ Set `NEXT_PUBLIC_API_URL` (defaults to `http://127.0.0.1:8000`) and, for voice,
 |--------|-------|---------|
 | `GET` | `/health` | Liveness probe |
 | `POST` | `/seed` | Load the mock clinic/lab/pharmacy datasets (idempotent) |
+| `POST` | `/records` | Ingest a JSON array of source records (validated, embedded, upserted) |
 | `GET` | `/patients` | Clinic records, the valid entry points for the roster |
+| `GET` | `/search?q=` | Find clinic entry records by name, record id, or NIC |
 | `GET` | `/reconcile/{record_id}` | Run the full loop, return the bundled result |
 | `GET` | `/reconcile/{record_id}/stream` | Run the loop, stream each stage as SSE |

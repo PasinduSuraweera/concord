@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { getPatients } from "@/lib/api";
+import { getPatients, searchPatients } from "@/lib/api";
 import { streamReconcile } from "@/lib/stream";
 import { startVoice, VAPI_PUBLIC_KEY, type VoiceSession } from "@/lib/voice";
 import type {
@@ -105,6 +105,7 @@ function formatResultForVoice(d: ReconciliationResult): string {
 export default function Home() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -135,6 +136,16 @@ export default function Home() {
       voiceRef.current?.stop();
     };
   }, []);
+
+  // Debounced patient search: empty query falls back to the full roster. The
+  // backend matches on name / record id / NIC, so the roster scales past a demo.
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      const fetch = query.trim() ? searchPatients(query) : getPatients();
+      fetch.then(setPatients).catch((e) => setLoadError(String(e)));
+    }, 200);
+    return () => clearTimeout(handle);
+  }, [query]);
   patientsRef.current = patients;
   runningRef.current = running;
 
@@ -333,9 +344,22 @@ export default function Home() {
           <h2 className="mb-3 text-[11px] font-medium uppercase tracking-[0.1em] text-[#8a8578]">
             Patient roster
           </h2>
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search name, record id, or NIC"
+            disabled={running}
+            className="mb-3 w-full rounded-lg border border-[#d8d3c6] bg-white px-3 py-2 text-[13px] text-[#211f19] placeholder:text-[#a8a399] focus:border-[#b3ad9e] focus:outline-none disabled:opacity-60"
+          />
           {loadError && (
             <p className="mb-3 rounded-md border border-red-200 bg-red-50 p-3 text-xs leading-relaxed text-red-800">
               The backend on :8000 is not responding. {loadError}
+            </p>
+          )}
+          {!loadError && patients.length === 0 && (
+            <p className="mb-3 text-xs leading-relaxed text-[#8a8578]">
+              {query.trim() ? "No patients match that search." : "No patients loaded."}
             </p>
           )}
           <div className="space-y-0.5">
