@@ -84,21 +84,23 @@ This is the classic "RAG to ground an LLM" pattern ([`guidelines.py`](backend/ap
 
 ## Voice control (Vapi), browser-orchestrated
 
-A clinician can drive the whole thing hands-free ([`voice.ts`](frontend/lib/voice.ts),
-[`page.tsx`](frontend/app/page.tsx)). The key design point: **the browser page stays
-the orchestrator, and Vapi's cloud never touches the backend.**
+Voice is a **conversation layer over a reconciliation the clinician has already run**
+([`voice.ts`](frontend/lib/voice.ts), [`page.tsx`](frontend/app/page.tsx)). The
+clinician selects a patient and runs the reconciliation themselves, then talks to the
+assistant about the result. The key design point: **the browser page stays the
+orchestrator, and Vapi's cloud never touches the backend.**
 
-- **Vapi** handles speech-to-text (Deepgram `nova-3-medical`, biased with the roster
-  names as keywords so Sinhala names transcribe better), the conversational LLM
+- **Vapi** handles speech-to-text (Deepgram `nova-3-medical`), the conversational LLM
   (GPT-4o), and text-to-speech.
-- The **page** watches the live transcript. When a patient is named or a record ID is
-  read out, it resolves who is meant (whole-token ID matching first, since IDs are
-  mostly digits and transcribe reliably, then fuzzy first-name matching via
-  Levenshtein as a fallback) and triggers the **normal** backend reconciliation.
-- When the run finishes, the page formats the full result and sends it back to the
-  assistant as a system message. The assistant then speaks a short summary and answers
-  detailed follow-ups (exact doses, dates, sources, confidence, guideline IDs)
-  **strictly from that result data**, with no medical advice beyond it.
+- The assistant **never identifies patients or starts runs from speech**. That was
+  unreliable with mis-transcribed Sinhala names, so patient selection is deliberate
+  (click or the roster search), and voice is reserved for the part it does well: Q&A.
+- When a run finishes, the page formats the full result and sends it to the assistant
+  as a system message (a call that connects *after* a run is handed the latest result
+  on connect). The assistant speaks a short summary, then answers detailed follow-ups
+  (exact doses, dates, sources, confidence, guideline IDs) **strictly from that result
+  data**, with no medical advice beyond it. If asked before any run, it tells the
+  clinician to run one first.
 
 ## End-to-end flow
 

@@ -30,24 +30,6 @@ const SEVERITY_RANK: Record<Severity, number> = { critical: 3, high: 2, moderate
 
 const normRef = (r: string) => r.match(/C\d+/i)?.[0]?.toUpperCase() ?? r;
 
-/** Edit distance between two lowercase strings, for fuzzy name matching against
- * mis-transcribed Sinhala names. Iterative two-row implementation. */
-function levenshtein(a: string, b: string): number {
-  if (a === b) return 0;
-  if (!a.length) return b.length;
-  if (!b.length) return a.length;
-  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
-  let curr = new Array<number>(b.length + 1);
-  for (let i = 1; i <= a.length; i++) {
-    curr[0] = i;
-    for (let j = 1; j <= b.length; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
-    }
-    [prev, curr] = [curr, prev];
-  }
-  return prev[b.length];
-}
 const initials = (name: string) =>
   name
     .split(/\s+/)
@@ -126,8 +108,10 @@ export default function Home() {
   const closeRef = useRef<(() => void) | null>(null);
   const startRef = useRef<number>(0);
   const voiceRef = useRef<VoiceSession | null>(null);
-  const patientsRef = useRef<Patient[]>([]);
   const runningRef = useRef(false);
+  // The latest finished result, formatted for voice, so a call that connects
+  // AFTER a run can be handed the data immediately (not just live runs).
+  const lastResultRef = useRef<string | null>(null);
 
   useEffect(() => {
     getPatients().then(setPatients).catch((e) => setLoadError(String(e)));
@@ -146,7 +130,6 @@ export default function Home() {
     }, 200);
     return () => clearTimeout(handle);
   }, [query]);
-  patientsRef.current = patients;
   runningRef.current = running;
 
   const addLog = (text: string) => setLog((l) => [...l, { at: new Date(), text }]);
@@ -168,6 +151,7 @@ export default function Home() {
     if (!id || runningRef.current) return;
     setSelectedId(id);
     closeRef.current?.();
+    lastResultRef.current = null; // a new run invalidates the result voice would report
     setRunning(true);
     setError(null);
     setMatchEvidence(null);
@@ -207,7 +191,11 @@ export default function Home() {
         setDurationMs(ms);
         setFinishedAt(new Date());
         addLog(`Complete in ${(ms / 1000).toFixed(1)}s, ${d.meta.llm_calls} model call(s)`);
-        if (voiceRef.current) voiceRef.current.reportResult(formatResultForVoice(d));
+        // Remember the result so voice connecting later can pick it up, and push
+        // it now if a call is already live.
+        const forVoice = formatResultForVoice(d);
+        lastResultRef.current = forVoice;
+        voiceRef.current?.reportResult(forVoice);
       },
       onError: (msg) => {
         setError(msg);
@@ -217,84 +205,27 @@ export default function Home() {
     });
   }
 
-  function matchPatient(text: string): Patient | null {
-    // Two ways in, so a garbled Sinhala name still resolves:
-    // (a) the record id, which is mostly digits and transcribes reliably
-    //     ("NWK ten forty two", "1042", "N W K 1042"), and
-    // (b) a fuzzy match on the FIRST name (the discriminating token; surnames
-    //     are shared on this roster, so they must not drive the match).
-    const lower = text.toLowerCase();
-
-    // (a) Record id wins whenever present: ids are mostly digits and transcribe
-    //     reliably, unlike Sinhala names. Match each id's number as a WHOLE token
-    //     (a standalone digit run), so "1100" can't match inside "11001".
-    const spokenNumbers = new Set(lower.match(/\d{3,}/g) ?? []);
-    if (spokenNumbers.size > 0) {
-      const byId = patientsRef.current.find((p) => spokenNumbers.has(p.record_id.replace(/\D/g, "")));
-      // An id was clearly spoken; trust it and never fall through to a fuzzy name.
-      return byId ?? null;
-    }
-
-    // (b) No id: fuzzy match on the FIRST name (the discriminating token; surnames
-    //     are shared on this roster, so they must not drive the match).
-    const words = lower.split(/[^a-z]+/).filter((w) => w.length >= 3);
-    if (words.length === 0) return null;
-    const scoreFor = (p: Patient): number => {
-      const first = p.full_name.toLowerCase().split(/\s+/)[0];
-      return Math.max(...words.map((w) => 1 - levenshtein(w, first) / Math.max(w.length, first.length)));
-    };
-    const ranked = patientsRef.current
-      .map((p) => ({ p, score: scoreFor(p) }))
-      .sort((a, b) => b.score - a.score);
-    if (ranked.length === 0 || ranked[0].score < 0.84) return null;
-    const runnerUp = ranked[1]?.score ?? 0;
-    // Require a clear gap to the runner-up unless it is a near-exact hit, so a
-    // one-character miss (Kamala vs Kamal) resolves to nobody rather than wrongly.
-    if (ranked[0].score - runnerUp < 0.12 && ranked[0].score < 0.95) return null;
-    return ranked[0].p;
-  }
-
-  function onUserUtterance(text: string) {
-    // The page is the orchestrator: a patient named (or their id read) on the
-    // call starts a normal run.
-    if (runningRef.current) return;
-    const hit = matchPatient(text);
-    if (hit) onReconcile(hit.record_id);
-  }
-
-  function onAssistantUtterance(text: string) {
-    // The assistant resolves indirect references ("the first one") to a patient
-    // and confirms a run. We trigger when its committed message both names a
-    // single patient AND signals run intent, rather than matching one exact
-    // phrase (which broke when STT/wording varied). Summaries describe a finished
-    // run ("contradictions", "completed"), so they won't re-fire.
-    if (runningRef.current) return;
-    const intent = /\b(reconcil|running|pulling|let me|i'?ll|starting|run)\b/i.test(text);
-    const finished = /\b(found|contradiction|conflict|completed|autonomous|escalat|summary|result)\b/i.test(text);
-    if (!intent || finished) return;
-    const hit = matchPatient(text);
-    if (hit) onReconcile(hit.record_id);
-  }
-
   function toggleVoice() {
     if (voiceRef.current) {
       voiceRef.current.stop();
       return;
     }
     setVoiceState("connecting");
-    voiceRef.current = startVoice(
-      {
-        onUserUtterance,
-        onAssistantUtterance,
-        onCallStart: () => setVoiceState("live"),
-        onCallEnd: () => {
-          voiceRef.current = null;
-          setVoiceState("off");
-        },
-        onLog: addLog,
+    // Voice is conversation-only: it never picks patients or starts runs. On
+    // connect, hand it the latest result if one exists, otherwise tell it none
+    // has run yet so it asks the clinician to run one first.
+    voiceRef.current = startVoice({
+      onCallStart: () => {
+        setVoiceState("live");
+        if (lastResultRef.current) voiceRef.current?.reportResult(lastResultRef.current);
+        else voiceRef.current?.reportNoResult();
       },
-      patientsRef.current.map((p) => p.full_name),
-    );
+      onCallEnd: () => {
+        voiceRef.current = null;
+        setVoiceState("off");
+      },
+      onLog: addLog,
+    });
   }
 
   const steps = [

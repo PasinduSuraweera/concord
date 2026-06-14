@@ -1,16 +1,15 @@
 import Vapi from "@vapi-ai/web";
 
-// Browser-orchestrated voice control. Vapi handles the conversation (STT, the
-// assistant's small talk model, TTS); THIS page stays the orchestrator: it
-// watches the transcript for a patient name, runs the normal reconciliation
-// through the backend, then hands the result back for the assistant to speak.
-// Vapi's cloud never needs to reach our localhost backend.
+// Voice is a CONVERSATION layer over a reconciliation the clinician has already
+// run. It never identifies a patient or starts a run from speech (that was
+// unreliable with mis-transcribed Sinhala names); the clinician picks the patient
+// and runs the reconciliation themselves, then talks to the assistant about the
+// result. Vapi handles STT, the assistant's small-talk model, and TTS; this page
+// feeds it the current result and it answers questions strictly from that data.
 
 export const VAPI_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY ?? "";
 
 export type VoiceHandlers = {
-  onUserUtterance: (text: string) => void;
-  onAssistantUtterance: (text: string) => void;
   onCallStart: () => void;
   onCallEnd: () => void;
   onLog: (text: string) => void;
@@ -19,37 +18,30 @@ export type VoiceHandlers = {
 export type VoiceSession = {
   stop: () => void;
   reportResult: (summary: string) => void;
+  reportNoResult: () => void;
 };
 
 const ASSISTANT_INSTRUCTIONS = `You are the voice interface of Concord, an autonomous
 clinical-record reconciliation agent used by clinicians in Sri Lanka. Keep every reply
 to one or two short sentences.
 
-The clinician can identify a patient three ways: by name, indirectly ("the first
-one"), or by their record id (e.g. "NWK-1042" or just "ten forty-two"). Names may
-be misheard, so if they give a record id, prefer it.
+You do NOT choose patients or start reconciliations. The clinician selects a patient
+and runs the reconciliation in the app; your job is to talk them through the result.
 
-When you know which patient they mean, respond with a short confirmation that
-includes BOTH their full name and their record id, and says you are running it now,
-for example: "Running the reconciliation for [Patient Name], [Record ID], now." Always
-include the record id when you have it. Then wait. If you cannot tell which patient
-they mean, ask them to confirm the name or read out the NWK number, and do NOT name
-a specific patient in that clarifying question.
+The application sends you a system message with the full result data once a run has
+finished. When it arrives, first summarise it aloud in two or three sentences: how many
+contradictions, the most serious finding, and whether it completed autonomously or needs
+a clinician. Then offer to go deeper ("Want the details?").
 
-The application runs the actual reconciliation and will send you a system message
-with the full result data; when it arrives, first summarise it aloud in two or
-three sentences: how many contradictions, the most serious finding, and whether it
-completed autonomously or needs a clinician. Then offer to go deeper ("Want the
-details?").
+After that, answer follow-up questions in as much detail as asked, strictly from the
+result data: quote exact doses, dates, sources, confidence levels and guideline ids when
+relevant. If asked about something not present in the data, say it is not in the record.
 
-After that, answer follow-up questions in as much detail as asked, strictly from
-the result data: quote exact doses, dates, sources, confidence levels and guideline
-ids when relevant. If asked about something not present in the data, say it is not
-in the record. Never use the phrase "running the reconciliation" in summaries or
-answers, only in the confirmation sentence. Do not give medical advice beyond what
-the result data contains.`;
+If the clinician asks about a result before any run has finished, tell them to select a
+patient and run the reconciliation first, then you can talk them through it. Do not give
+medical advice beyond what the result data contains.`;
 
-export function startVoice(handlers: VoiceHandlers, patientNames: string[]): VoiceSession {
+export function startVoice(handlers: VoiceHandlers): VoiceSession {
   const vapi = new Vapi(VAPI_PUBLIC_KEY);
 
   vapi.on("call-start", handlers.onCallStart);
@@ -59,53 +51,25 @@ export function startVoice(handlers: VoiceHandlers, patientNames: string[]): Voi
     handlers.onCallEnd();
   });
 
-  let lastAssistantHandled = "";
-
+  // Transcript is logged for the audit trail; we no longer parse it for a patient.
   vapi.on(
     "message",
-    (m: {
-      type?: string;
-      transcriptType?: string;
-      role?: string;
-      transcript?: string;
-      messages?: { role?: string; message?: string; content?: string }[];
-    }) => {
+    (m: { type?: string; transcriptType?: string; role?: string; transcript?: string }) => {
       if (m?.type === "transcript" && m.transcriptType === "final" && m.transcript) {
         handlers.onLog(`${m.role === "user" ? "Clinician" : "Concord"}: "${m.transcript}"`);
-        if (m.role === "user") handlers.onUserUtterance(m.transcript);
-        return;
-      }
-
-      if (m?.type === "conversation-update" && Array.isArray(m.messages)) {
-        const assistantMsgs = m.messages.filter((x) => x.role === "assistant" || x.role === "bot");
-        const last = assistantMsgs[assistantMsgs.length - 1];
-        const text = last?.message ?? last?.content ?? "";
-        if (text && text !== lastAssistantHandled) {
-          lastAssistantHandled = text;
-          handlers.onAssistantUtterance(text);
-        }
       }
     },
-  );
-  
-  const nameKeywords = [...new Set(patientNames.flatMap((n) => n.split(/\s+/)))].map(
-    (token) => `${token}:3`,
   );
 
   vapi.start({
     name: "Concord",
-    firstMessage: "Concord here. Which patient should I reconcile?",
-    transcriber: { provider: "deepgram", model: "nova-3-medical", language: "en", keywords: nameKeywords },
+    firstMessage: "Concord here. Run a reconciliation and I'll talk you through the result.",
+    transcriber: { provider: "deepgram", model: "nova-3-medical", language: "en" },
     voice: { provider: "vapi", voiceId: "Elliot" },
     model: {
       provider: "openai",
       model: "gpt-4o",
-      messages: [
-        {
-          role: "system",
-          content: `${ASSISTANT_INSTRUCTIONS}\n\nPatients on the roster: ${patientNames.join(", ")}.`,
-        },
-      ],
+      messages: [{ role: "system", content: ASSISTANT_INSTRUCTIONS }],
     },
   });
 
@@ -120,6 +84,17 @@ export function startVoice(handlers: VoiceHandlers, patientNames: string[]): Voi
             "Reconciliation finished. Full result data follows. Summarise it aloud in 2-3 " +
             "sentences now, then answer follow-up questions in detail from this data only.\n\n" +
             resultDetail,
+        },
+      });
+    },
+    reportNoResult: () => {
+      vapi.send({
+        type: "add-message",
+        message: {
+          role: "system",
+          content:
+            "No reconciliation has been run yet. If the clinician asks about a result, tell " +
+            "them to select a patient and run the reconciliation first.",
         },
       });
     },
